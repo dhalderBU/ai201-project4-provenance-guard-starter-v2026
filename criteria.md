@@ -98,15 +98,17 @@ We will not reduce the threshold for appeal but we will make sure majority of fi
 Every request to `POST /submit` (100% of test requests), including blank or
 invalid input, must create a JSON entry in `logs/audit.jsonl`.
 
-Each entry must include `timestamp`, `creator_id`, `content_id`, `guess`,
-`model_score`, `style_score`, `combined_score`, `confidence`, `label`, `status`,
-`http_status`, and `http_status_meaning`.
+Each successful evaluation entry must include these ten fields:
+`timestamp`, `content_id`, `creator_id`, `guess`, `model_score`, `style_score`,
+`combined_score`, `label`, `status`, and `confidence`.
 
 For successful submissions, the logged results must match the response, and
-`confidence` must equal `combined_score`. For blank, missing, or invalid input,
-log `event="rejected"`, `status="rejected"`, the rejection `reason`, and HTTP
-`400` (`Bad Request`). Use `unknown` if no valid creator ID is available and
-`null` for results that do not exist, such as scores, a label, or a content ID.
+`confidence` must equal `combined_score`. The status must be `decided`.
+
+For blank, missing, or invalid input, use the existing rejection log format:
+`timestamp`, `creator_id`, `event="rejected"`, `status="rejected"`, and
+`reason`. Use `unknown` if no valid creator ID is available. A rejected entry
+does not need scores or a classification because no evaluation was completed.
 
 **Why this target:**
 
