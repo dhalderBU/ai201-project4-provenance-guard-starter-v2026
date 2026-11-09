@@ -24,6 +24,7 @@ Routes:
     GET  /health      is the service up, and is the model loaded
 """
 
+# from email.mime import text  # Not needed: text comes from the JSON payload.
 import uuid
 
 from flask import Flask, jsonify, request
@@ -201,16 +202,76 @@ def submit():
     """
     payload = request.get_json(silent=True) or {}
 
-    # TODO: delete this and build the route.
-    return jsonify({
-        "error": "not_implemented",
-        "message": "POST /submit isn't built yet — see the TODO in app.py.",
-        "you_sent": {
-            "text_length": len(payload.get("text", "")),
-            "creator_id": payload.get("creator_id"),
-        },
-    }), 501
+    text = payload.get("text")
+    creator_id = payload.get("creator_id", "unknown")
 
+    # Validate the text before calling the detector.
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({"error": "bad_request", "message": "Send JSON with a non-empty \"text\"."}), 400
+
+    # Step 3 - one real signal that we first tested from the terminal
+    # python detector.py "some text"
+    import detector
+
+    #model_score=0.5
+
+    # Below lines commented so as to setup styling with default values uncomment once the logic is implemented
+    try:
+        model_score = detector.model_signal(text)
+    except detector.TextTooShortError as exc:
+        return jsonify({"error": "bad_request", "message": str(exc)}), 400
+
+
+    # Below lines commented so as to setup styling with default values
+    import stylometry
+    style_score = 0.5
+
+    #try:
+    #    style_score = stylometry.style_signal(text)
+    #except stylometry.TextTooShortError as exc:
+    #    return jsonify({"error": "bad_request", "message": str(exc)}), 400
+
+
+    # implement scoring and labeling logic here. For now, we will use default values for combined_score, label, and confidence.
+    import scoring
+    combined_score =0.5
+    label = "unsure"
+    confidence = 0.5
+    status="decided"
+
+    # Below lines commented so as to setup with default values
+    #combined_score = scoring.combine_signals(model_score, style_score)
+    #label, confidence = scoring.score_to_label(combined_score)
+
+    
+
+    # Step 4 - log the decision. The content_id is what /appeal needs later.
+    content_id = f"c_{uuid.uuid4().hex[:12]}"
+    audit.log_decision(
+        content_id=content_id,
+        creator_id=creator_id,
+        model_score=model_score,
+        style_score=style_score,
+        combined_score=combined_score,
+        label=label,
+        confidence=confidence,
+        status=status,
+    )
+
+    # Step 2 - JSON goes in: pull text and creator_id out of the body
+    # Validation now runs above, before the detector is called
+
+    # Step 1 - to get the route working without any logic
+    return jsonify({
+        "content_id": content_id,
+        "guess": "unsure",
+        "confidence": 0.5,
+        "label": "not built yet",
+        "model_score": model_score,
+        "style_score": None,
+    }), 200
+
+  
 
 @app.post("/appeal")
 def appeal():
