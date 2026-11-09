@@ -42,61 +42,78 @@ Two things worth knowing before you pick numbers:
   a **miss**.
 
 ---
-## 1.
+## 1. False positive rate
 
 <!-- Your criterion. It must name a number. -->
-
+Out of five confirmed human-written pieces, no more than two may receive the label as AI written (i.e max false positive rate of 0.4).  
 
 
 **Why this target:**
-
+This is the most critical requirement and is the core requirement . Ideally I would like it to be 20% or above but as we dont know how much of training has been done I will keep it at false positive max allowed 40%) . 
 
 
 ---
 
-## 2.
+## 2. Spread between clearlyAI and clearly Human 
 
 <!-- Your criterion. -->
-
+For 5 confirmed AI-written pieces and 5 confirmed human-written pieces, the average combined score of the AI-written pieces must be at least 0.3 higher than the average combined score of the human-written pieces.
 
 
 **Why this target:**
-
+Since the AI authored articles will have higher combined score. Without a gap of 0.3 we will have mis-classification 
 
 
 ---
 
-## 3.
+## 3. Label reachability
 
 <!-- Your criterion. -->
-
+Atleast 4 of 5 cases the label should be correctly reached based on below thresholds for combined score :
+Any score equal or more than 0.65 is  AI generated
+Any score >= 0 and less than 0.35 is  clearly_human
+Any score  between 0.35 but lower than 0.65 is borderline 
 
 
 **Why this target:**
-
+I feel we should only classify it as AI written when we have high degree of confidence so keeping that score threshold as 0.65 for AI generated. If we make it too low there is a possibility that writers actual writings will be falsely classified as AI written.  
 
 
 ---
 
-## 4.
+## 4. Process of Appeal
 
 <!-- Your criterion. -->
-
-
+Every  appeal must record the content_id and reasoning, set the status to under_review, and return confirmation.
+-  For appealed requests we will rescore 5 times , and if of the five 3 or more comes human then we will term it as human else will send a response "we could not confirm the content to be written by human after appeals process content review.
 
 **Why this target:**
-
+We will not reduce the threshold for appeal but we will make sure majority of five evaluation comes out positive
 
 
 ---
 
-## 5.
+## 5. Eval logging
 
 <!-- Your criterion. -->
+Every request to `POST /submit` (100% of test requests), including blank or
+invalid input, must create a JSON entry in `logs/audit.jsonl`.
 
+Each entry must include `timestamp`, `creator_id`, `content_id`, `guess`,
+`model_score`, `style_score`, `combined_score`, `confidence`, `label`, `status`,
+`http_status`, and `http_status_meaning`.
 
+For successful submissions, the logged results must match the response, and
+`confidence` must equal `combined_score`. For blank, missing, or invalid input,
+log `event="rejected"`, `status="rejected"`, the rejection `reason`, and HTTP
+`400` (`Bad Request`). Use `unknown` if no valid creator ID is available and
+`null` for results that do not exist, such as scores, a label, or a content ID.
 
 **Why this target:**
+
+Every request should leave a record so I can explain a decision or rejection.
+The individual scores help locate mistakes, and matching the response shows
+what the writer actually received.
 
 
 
