@@ -84,10 +84,13 @@ I feel we should only classify it as AI written when we have high degree of conf
 ## 4. Process of Appeal
 
 <!-- Your criterion. -->
-Every  appeal must record the content_id and reasoning, set the status to under_review, and return confirmation. For appealed requests we will rescore 5 times , and if of the five 3 or more comes human then we will term it as human else will send a response "we could not confirm the content to be written by human after appeals process content review.
+Every appeal with an existing content_id and non-empty reasoning must be logged and marked under_review. Rescore the original text five times. Use the classification receiving at least three votes; otherwise, return unsure. Log all five results and return confirmation.
+
+For an unsure result, display:
+“Based on revaluation we do not have enough evidence to determine how this text was written. Your appeal has been recorded.”
 
 **Why this target:**
-We will not reduce the threshold for appeal but we will make sure majority of five evaluation comes out positive. THis gives us enough confidence 
+We will not reduce the threshold for appeal but we will make sure majority of five evaluation comes out positive. THis gives us enough confidence. The message passed to the submitter is also customeized for appeal 
 
 
 ---
