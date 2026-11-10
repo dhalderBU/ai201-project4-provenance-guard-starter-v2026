@@ -50,12 +50,11 @@ DETECTOR_MAX_TOKENS = 400
 # ─── Scoring (Milestone 4) ───────────────────────────────────────────────────
 # How much each signal counts toward the combined score.
 #
-# ⚠️ These are placeholders. Milestone 4 asks you to write your combining rule
-# down BEFORE you code it, and to put the numbers in your README. Whatever you
-# decide, it goes here.
+# The model contributes 70% and style contributes 30%. Both scores point
+# toward AI as they increase; the weights sum to 1.0.
 
-WEIGHT_MODEL_SIGNAL = 0.5
-WEIGHT_STYLE_SIGNAL = 0.5
+WEIGHT_MODEL_SIGNAL = 0.7
+WEIGHT_STYLE_SIGNAL = 0.3
 
 
 # ─── Thresholds (Milestone 5) ────────────────────────────────────────────────
@@ -71,14 +70,12 @@ WEIGHT_STYLE_SIGNAL = 0.5
 # getting through. There is no setting that avoids the trade — only settings
 # that decide who pays for it.
 
-HUMAN_THRESHOLD = 0.35
-AI_THRESHOLD = 0.65
+HUMAN_THRESHOLD = 0.45
+AI_THRESHOLD = 0.60
 
-# ⚠️ One thing that catches people out in Milestone 5. A weighted average can
-# only land between its two inputs — so while `style_signal` is still the stub
-# returning 0.5, the combined score can never leave 0.25–0.75 no matter what
-# the model signal says, and the human label needs a model score below 0.20 to
-# be reachable at all.
+# A weighted average with nonnegative weights summing to 1.0 stays between
+# its two inputs. With these weights, the model has more influence when the
+# signals disagree.
 #
 # If a label you can't reach is the problem, the fix is upstream of the
 # thresholds: a style signal that actually varies. `scoring.label_ranges()`
@@ -94,8 +91,8 @@ AI_THRESHOLD = 0.65
 
 RATE_LIMITING_ENABLED = os.getenv("AI201_RATE_LIMITS", "0") == "1"
 
-RATE_LIMIT_PER_MINUTE = 10
-RATE_LIMIT_PER_DAY = 200
+RATE_LIMIT_PER_MINUTE = 5
+RATE_LIMIT_PER_DAY = 50
 
 # Flask-Limiter warns loudly without this. In-memory is right for one laptop
 # and wrong for anything real — a restart forgets every count, and two copies

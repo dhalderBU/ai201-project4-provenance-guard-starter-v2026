@@ -42,7 +42,7 @@
  -2. check if the content is non empty  (if not then return http status 400) 
  -3. send the text for first signal i.e. detector.py model_signal() with text as the parameter/argument,this calculates the AI score based on  perplexity score. Higher the model signal score more likely it is AI written(score between 0-1) 
  -4. send the text for 2nd signal i.e. stylometry.py style_signal() with text as the parameter/argument,this calculates the style score. Higher score moreliely is it AI(score between 0-1)  
- -5. then it adds weighted score based on the MODEL_Weight and STYLE_weight weights configured in config.py (default weights - 0.5) in scoring.py method combine_signals().
+ -5. `scoring.py::combine_signals` combines the scores using `WEIGHT_MODEL_SIGNAL = 0.7` and `WEIGHT_STYLE_SIGNAL = 0.3`, both defined in `config.py`.
  -6  then scoring.py score_to_label() method is calledc with weighted score as calculated earlier and then besed on the threhod defined in the config.py it decides if its human generated or AI generated of if its unsure of it
  -7. Generates unique content_id and then then logs the decision and returns the json with this decission ie if its AI, Human or unsure
  
@@ -78,16 +78,79 @@ Incase text has more than 400 tokens then it will start ignoreing older tokens  
 
 **What it measures:**
 
-The planned `stylometry.style_signal(text)` measures the structure of the text using three features: variation in sentence lengths, the ratio of unique words to total words, and punctuation density relative to text length. These features
-will be combined into a score between 0 and 1, with higher scores indicating AI generated text.
+The three individual measurement functions implement the supplied sample code:
+
+| Method | Raw measurement | Empty-input result |
+| --- | --- | --- |
+| `sentence_length_spread(text)` | Population standard deviation of sentence word counts divided by their mean | `0.0` |
+| `punctuation_density(text)` | Count of `, ; : — – ( )` divided by the number of words | `0.0` |
+| `type_token_ratio(text)` | Unique lowercase word tokens divided by all word tokens | `0.0` |
+
+Sentence splitting uses whitespace after `.`, `!`, or `?`. Tokenization uses
+`[A-Za-z']+`, matching the sample: digits are excluded, straight apostrophes
+stay within tokens, and curly apostrophes split tokens. Wordless sentence
+fragments remain in the spread distribution, also matching the sample.
+Structural punctuation density can exceed `1.0`; it is a raw ratio, not a score.
+
+`style_subscores(text)` converts the measurements into AI-oriented contributions:
+
+```python
+spread_ai = clamp01((0.60 - spread) / (0.60 - 0.25))
+punct_ai = clamp01((density - 0.06) / (0.14 - 0.06))
+ttr_ai = clamp01((0.80 - ttr) / (0.80 - 0.62))
+
+style_score = 0.50 * spread_ai + 0.20 * punct_ai + 0.30 * ttr_ai
+```
+
+`clamp01` limits each contribution to `[0.0, 1.0]`. The combined score keeps
+full precision. All sample limits, anchors, weights, and label thresholds are
+named constants at the top of `stylometry.py`.
+
+| Setting | Constants | Values |
+| --- | --- | --- |
+| Minimum sample | `MIN_STYLE_SENTENCES`, `MIN_STYLE_WORDS` | `3`, `40` |
+| Spread anchors | `SPREAD_AI_ANCHOR`, `SPREAD_HUMAN_ANCHOR` | `0.25`, `0.60` |
+| Structural punctuation anchors | `PUNCTUATION_HUMAN_ANCHOR`, `PUNCTUATION_AI_ANCHOR` | `0.06`, `0.14` marks per word |
+| TTR anchors | `TTR_AI_ANCHOR`, `TTR_HUMAN_ANCHOR` | `0.62`, `0.80` |
+| Weights | `STYLE_WEIGHT_SPREAD`, `STYLE_WEIGHT_PUNCTUATION`, `STYLE_WEIGHT_TTR` | `0.50`, `0.20`, `0.30` |
+| Style decision thresholds | `STYLE_AI_THRESHOLD`, `STYLE_UNCERTAIN_THRESHOLD` | `0.65`, `0.40` |
+
+Both sample minimums must be met. `style_score(text)` and `style_subscores(text)`
+return `None` below three sentences or 40 words, exactly as in the supplied
+algorithm. `style_signal(text)` preserves its existing float-returning service
+signature by raising `TextTooShortError` for insufficient text. The existing
+`/submit` handler catches that exception and returns HTTP `400` with a message.
+
+`style_score_to_label(score)` applies these style-only labels:
+
+| Score | Style classification |
+| --- | --- |
+| `None` | `INSUFFICIENT_DATA` |
+| `0.65 <= score <= 1.00` | Likely AI |
+| `0.40 <= score < 0.65` | Uncertain |
+| `0.00 <= score < 0.40` | Likely Human |
+
+`style_classification(text)` combines scoring and style labeling. The CLI shows
+the raw measurements, normalized contributions, combined style score, and label.
+The API continues to pass the numeric style signal into its separate
+model/style combination; these thresholds do not change that combining rule.
+
+This implementation replaces the earlier short/long branches with the supplied
+sample algorithm. It uses the whole input and has no upper word-count cutoff.
+The TTR anchors were proposed for prose under 200 words, so scores on longer
+inputs need separate evaluation. All anchors are hypotheses to test, not
+established authorship boundaries or calibrated probabilities.
 
 **Why that might differ between human and AI writing:**
 
-Human writing may vary more in rhythm and word choice, length , choice of puctuation etc. These are possible tendencies, not rules: both people and AI can write depending on how ai has been trained .
+The  model for score calculation treats uniform sentence lengths, frequent structural punctuation, and repeated vocabulary as patterns of AI-generated content(signals). 
 
 **What it can't see:**
 
-It cannot understand meaning or verify who has written . 
+It cannot understand meaning or identify who wrote the text. Rephrasing or paraphrasing , 
+changing punctuation, and splitting sentences can change the score without
+changing authorship. TTR depends on input length, and the simple English
+tokenizer and sentence splitter can make abbreviations change scores, mix of another language can drop the scores to wards human thereby fooling.
 
 ### The combining rule
 
@@ -96,36 +159,44 @@ It cannot understand meaning or verify who has written .
 
 **The rule:**
 
-I use an equal-weighted average of the model score and the style score, with a weight of `0.5` for each. Both scores range from 0 to 1, with higher values indicating stronger evidence that the text is written by AI. The weights add up to 1, so each signal contributes half of the combined score. Later, as I test and tune
-the system, I may choose different weights.
+I use a weighted average: the model score contributes 70% and the style score
+contributes 30%. Both inputs range from 0 to 1, with higher values indicating
+more AI-like text. The weights are nonnegative and add up to 1, so the combined
+score stays between the two input scores and within the same 0–1 range.
 
-When one signal leans strongly toward AI and the other strongly toward human, their average may move toward the middle and produce an unsure result. The final label depend on the combined score and the configured thresholds as setup in config.py.
+When the signals disagree, the model score has more influence. There is no
+separate disagreement override: the weighted result can receive a human,
+unsure, or AI label, depending on the thresholds in `config.py`. Giving the
+model more weight also means its mistakes can outweigh the style signal.
 
-**Trace of a false positive — hypothetical scenario:**
+**Trace of an unsure result — hypothetical scenario:**
 
 The sample below illustrates the planned flow. The scores are imaginary, and the reader-facing messages are proposed wording, not output from a test run.
 
 1. **The writer enters their text.** A writer submits the following passage as their own original work:
 
-   > Every morning I take my dog out, the morning mist and fresh air is so refreshing.
+   > Every morning I take my dog out before work. Today the mist was still hanging over the park, and we stopped near the gate while a neighbor looked for her keys. I got home a little late, so I ate breakfast standing beside the sink.
 
 2. **The service receives the submission.** The website sends the passage in
-   `text`, along with the generated `creator_id`, to `POST /submit`. The route parses the JSON and checks the input. This passage is non-empty, so processing continues.
+   `text`, along with the generated `creator_id`, to `POST /submit`. The route
+   parses the JSON and checks the input. This passage is non-empty and meets
+   the style signal's minimum of three sentences and 40 words.
 
-3. **The model signal scores the text.** The route passes the passage to `detector.model_signal(text)`. Its wording produces a model score of `0.7`. 
+3. **The model signal scores the text.** The route passes the passage to `detector.model_signal(text)`. For this hypothetical calculation, assume a model score of `0.7`.
 
-4. **The style signal scores the text.** The route passes the same passage to the planned `stylometry.style_signal(text)`. Its sentence structure produces a style score of `0.30`.
+4. **The style signal scores the text.** The route passes the same passage to `stylometry.style_signal(text)`. Assume a style score of `0.30`; this is an illustrative value, not a measured result for the passage.
 
 5. **The service combines the scores and chooses a label.**
-   `scoring.combine_signals(0.7, 0.30)` calculates `(0.5 × 0.7) + (0.5 × 0.30) = 0.5`. The route passes `0.5` to `scoring.score_to_label()`. Because `0.5` is in unsure band so it will return `unsure`. 
+   `scoring.combine_signals(0.7, 0.30)` calculates `(0.7 * 0.7) + (0.3 * 0.30) = 0.58`.
+   The route passes the combined score to `scoring.score_to_label()`, which
+   returns `("unsure", 0.58)` because `0.45 < 0.58 < 0.60`.
 
 6. **The writer sees the assessment.** The planned service generates a
    `content_id`, logs the decision and scores, and returns JSON containing the
    ID, `guess`, `confidence`, `label`, `model_score`, and `style_score`. The
    proposed label displayed by the website is:
 
-   > Our automated checks suggest it is `unsurte` if this was written by Human or AI generated. This
-   > assessment can be wrong. You can request a review by submitting an appeal request
+   > We do not have enough evidence to determine how this text was written. The writer can request a review.
 
 
 
@@ -136,15 +207,22 @@ The sample below illustrates the planned flow. The scores are imaginary, and the
 
 **The numbers:**
 
-- `WEIGHT_MODEL_SIGNAL = 0.5`
-- `WEIGHT_STYLE_SIGNAL = 0.5`
+- `WEIGHT_MODEL_SIGNAL = 0.7`
+- `WEIGHT_STYLE_SIGNAL = 0.3`
 - The weights add up to `1.0`.
+- `HUMAN_THRESHOLD = 0.45`
+- `AI_THRESHOLD = 0.60`
 
 ```text
-combined_score = (0.5 × model_score) + (0.5 × style_score)
+combined_score = (0.7 * model_score) + (0.3 * style_score)
 ```
 
-These weights are defined in `config.py`. The current label boundaries are human for scores at or below `0.35`, unsure for scores above `0.35` and below `0.65`, and AI for scores at or above `0.65`. The combined score is a heuristic, not a calibrated probability of AI authorship.
+The weights and final label thresholds are defined in `config.py`.
+`scoring.score_to_label` assigns human for scores at or below `0.45`, unsure
+for scores above `0.45` and below `0.60`, and AI for scores at or above `0.60`.
+These final label thresholds are separate from the style-only thresholds in
+`stylometry.py`. The combined score is a heuristic, not a calibrated probability
+of AI authorship.
 
 **Where it lives:** `scoring.py::combine_signals`
 
@@ -153,17 +231,132 @@ These weights are defined in `config.py`. The current label boundaries are human
 
 **A case where my two signals split, and what my rule does with it:**
 
-**Hypothetical example(an example only) :** A human writer uses familiar phrases but sentences of very different lengths. Suppose the model signal returns `0.90` because the wording is predictable, while the
-completed style signal returns `0.10` because the structure is varied.
+The actual run of `Milestone4_test_sample/borderline_ai_milestone4.json`
+recorded a model score of `0.5195` and a style score of `0.6808494097161918`.
+The model score lies in the final rule's unsure range, while the style-only
+classifier treats the style score as likely AI. This is a measured disagreement
+in the strength of the signals.
 
 ```text
-combined_score = (0.5 × 0.90) + (0.5 × 0.10)
-               = 0.50
+combined_score = (0.7 * 0.5195) + (0.3 * 0.6808494097161918)
+               = 0.5679048229148576
+label = unsure
 ```
 
-The result falls in the unsure band. In this example, the model's high score alone does not cause an AI label, which helps avoid accusing the human writer when the two signals disagree. 
+The model contributes `0.36365`, and style contributes about `0.204255`.
+The combined score stays below the AI threshold of `0.60` and above the human
+threshold of `0.45`, so the final label is unsure. The audit entry is
+`c_df4de07a8019`; its full record appears below.
 
-Depending on test results I may twek the threholds and the weights to get a better prediction
+Disagreement does not always produce unsure. For comparison, hypothetical
+scores of model `0.90` and style `0.10` give `0.66`, which receives an AI label.
+Reversing them gives `0.34`, which receives a human label. These comparison
+values illustrate the model's larger weight; they are not additional test runs.
+
+### Milestone 4 — Input tests and audit evidence
+
+The four entries from the latest batch come from [logs/audit.jsonl](logs/audit.jsonl), lines
+164–167, recorded on **November 10, 2026 at 12:58:48 a.m. Pacific Standard
+Time** (`2026-11-10T08:58:48+00:00` in the log). The submissions were made with:
+
+```bash
+for sample in ./Milestone4_test_sample/*.json; do
+  printf '\nTesting %s\n' "$sample"
+  curl -i -X POST http://127.0.0.1:5000/submit \
+    -H "Content-Type: application/json" \
+    --data-binary "@$sample"
+  printf '\n'
+done
+```
+
+The audit records do not store filenames. The mapping below was checked against
+the loop's sorted file order, the creator IDs, and a local recalculation of both
+signals for each file. All four recalculated signal pairs matched the recorded
+values. These checks did not submit new requests or append audit entries.
+
+The separate clearly-human test was already recorded earlier, on **November
+10, 2026 at 12:22:26 a.m. Pacific Standard Time**, in audit line 163. It used
+`samples/clearly-human.json`. Recalculating both signals for that saved file
+matched the earlier entry's creator ID and scores. The table includes that
+earlier test alongside the four files from the latest batch.
+
+**Recorded results:** Scores in the table are rounded to six decimal places;
+the exact logged values are preserved in the JSONL excerpt below. Final labels
+use `0.7 * model_score + 0.3 * style_score`, with human at `<= 0.45`, AI at
+`>= 0.60`, and unsure between those boundaries.
+
+| Test input | File | Model score | Style score | Combined score | Recorded label |
+| --- | --- | ---: | ---: | ---: | --- |
+| Clearly AI | [clearly-AI_milestone4.json](Milestone4_test_sample/clearly-AI_milestone4.json) | 0.919500 | 0.655224 | 0.840217 | `ai` |
+| Clearly human — earlier run | [clearly-human.json](samples/clearly-human.json) | 0.444500 | 0.199291 | 0.370937 | `human` |
+| Formal human — designated test category | [clearly-human_milestone4.json](Milestone4_test_sample/clearly-human_milestone4.json) | 0.308100 | 0.455105 | 0.352202 | `human` |
+| Lightly-edited AI | [clearly-AI_lightly_editted.json](Milestone4_test_sample/clearly-AI_lightly_editted.json) | 0.832100 | 0.823410 | 0.829493 | `ai` |
+| Borderline | [borderline_ai_milestone4.json](Milestone4_test_sample/borderline_ai_milestone4.json) | 0.519500 | 0.680849 | 0.567905 | `unsure` |
+
+**Assignment coverage:** `clearly-human_milestone4.json` is designated as the
+formal-human case, and `borderline_ai_milestone4.json` is designated as the
+borderline case. Together with the earlier `samples/clearly-human.json` test,
+the recorded runs cover all four required categories: clearly AI, clearly
+human, formal human, and lightly-edited AI. The borderline input is an
+additional test. The clearly-human and formal-human cases use different texts
+and different audit entries.
+
+**What the separate signals show:**
+
+1. **Clearly AI:** Both signals support the recorded AI label. The model score
+   is `0.9195`, and the style score is about `0.655224`; their weighted result
+   is about `0.840217`. The style score is lower than the model score partly
+   because structural punctuation contributes zero under the current rule.
+2. **Formal human:** The final human label matches the supplied test
+   category. The model score is `0.3081`, while the style score is higher at
+   about `0.455105`, within the style-only uncertain range. Its TTR is `0.68`,
+   which becomes a TTR AI sub-score of about `0.666667`; the spread sub-score
+   is about `0.510211`, and punctuation contributes zero. Those style rules
+   produce some AI-like evidence for this human text, but the model's larger
+   weight keeps the final score at about `0.352202`, within the human range.
+3. **Lightly-edited AI:** The edits did not move this sample out of the AI
+   range: model `0.8321`, style about `0.823410`, combined about `0.829493`.
+   Its low sentence-length spread (`0.159458`) and low TTR (`0.560694`) both
+   map to maximum AI sub-scores of `1.0`. Punctuation contributes a sub-score
+   of about `0.117052`. This explains why the style signal remains high after
+   editing. The four-file run does not include an unedited version of this
+   same passage, so it does not measure how much the edits changed its score.
+4. **Borderline movie review:** The style signal is more AI-like than the
+   model signal. Its TTR (`0.610294`) maps to `ttr_ai = 1.0`, and spread maps
+   to `spread_ai = 0.761699`, despite punctuation contributing zero. The final
+   score is about `0.567905`, so the result is unsure, consistent with its
+   intended borderline role. This checks the uncertainty band; it does not
+   establish authorship or replace the separate clearly-human test.
+5. **Clearly human, from the earlier run:** The model score is `0.4445`, and
+   the style score is about `0.199291`. Both fall in their respective human
+   ranges. The weighted calculation is
+   `(0.7 * 0.4445) + (0.3 * 0.19929078014184398) = 0.3709372340425532`,
+   which receives a human label. Its audit ID is `c_e7713e4b8ef4`.
+
+These are diagnostics of five selected samples, not an accuracy estimate.
+The style measurements and sub-scores above were recalculated from the saved
+texts; they are not additional fields claimed to be in the original audit log.
+
+**The earlier clearly-human audit entry:**
+
+```jsonl
+{"timestamp": "2026-11-10T08:22:26+00:00", "content_id": "c_e7713e4b8ef4", "creator_id": "demo_instructor", "guess": null, "model_score": 0.4445, "style_score": 0.19929078014184398, "combined_score": 0.3709372340425532, "label": "human", "status": "decided", "confidence": 0.3709372340425532}
+```
+
+**The four original audit entries, in submission order .. borderline,AI-editied, clearly-Ai, clearly Human :**
+
+```jsonl
+{"timestamp": "2026-11-10T08:58:48+00:00", "content_id": "c_df4de07a8019", "creator_id": "demo_instructor", "guess": null, "model_score": 0.5195, "style_score": 0.6808494097161918, "combined_score": 0.5679048229148576, "label": "unsure", "status": "decided", "confidence": 0.5679048229148576}
+{"timestamp": "2026-11-10T08:58:48+00:00", "content_id": "c_826437d6b820", "creator_id": "deb_demo_instructor", "guess": null, "model_score": 0.8321, "style_score": 0.8234104046242774, "combined_score": 0.8294931213872831, "label": "ai", "status": "decided", "confidence": 0.8294931213872831}
+{"timestamp": "2026-11-10T08:58:48+00:00", "content_id": "c_f6d165650e97", "creator_id": "deb_demo_instructor", "guess": null, "model_score": 0.9195, "style_score": 0.6552244389917785, "combined_score": 0.8402173316975334, "label": "ai", "status": "decided", "confidence": 0.8402173316975334}
+{"timestamp": "2026-11-10T08:58:48+00:00", "content_id": "c_67cdde910c80", "creator_id": "deb_demo_instructor", "guess": null, "model_score": 0.3081, "style_score": 0.4551054998369862, "combined_score": 0.3522016499510958, "label": "human", "status": "decided", "confidence": 0.3522016499510958}
+```
+
+`app.py::submit` already passes `model_score`, `style_score`, and
+`combined_score` to `audit.log_decision`, which writes them in each decision
+record. These four entries verify that all three scores are logged together.
+The recorded classification is in `label`; the legacy `guess` field is `null`
+in this run and is reproduced unchanged above.
 
 ---
 
@@ -181,25 +374,27 @@ Depending on test results I may twek the threholds and the weights to get a bett
 
      Write them for someone who has never heard the word "threshold". -->
 
-These are the planned reader-facing messages. The ranges follow the current
+`scoring.score_to_label(score)` returns `(label, confidence)`, where `label` is
+`"human"`, `"unsure"`, or `"ai"`, and `confidence` is the combined score as a
+float. Higher confidence values mean more AI-like, not greater certainty in
+the selected label. For example, `score_to_label(0.20)` returns `("human", 0.20)`.
+
+These are the planned reader-facing messages. Their ranges follow the current
 conditions in `scoring.score_to_label()`; the message text still needs to be
-implemented there and connected to the response.
+connected to the response separately.
 
 | Label | Score range | The exact text a reader sees |
 |---|---|---|
-| high-confidence human | `0.00 ≤ score ≤ 0.35` | Our checks suggest this text was written by a person. This assessment can be wrong. |
-| unsure | `0.35 < score < 0.65` | We do not have enough evidence to determine how this text was written. The writer can request a review. |
-| high-confidence AI | `0.65 ≤ score ≤ 1.00` | Our checks suggest this text may have been generated by AI. This assessment can be wrong, and the writer can request a review. |
+| high-confidence human | `0.00 ≤ score ≤ 0.45` | Our checks suggest this text was written by a person. This assessment can be wrong. |
+| unsure | `0.45 < score < 0.60` | We do not have enough evidence to determine how this text was written. The writer can request a review. |
+| high-confidence AI | `0.60 ≤ score ≤ 1.00` | Our checks suggest this text may have been generated by AI. This assessment can be wrong, and the writer can request a review. |
 
 **Why I worded the "unsure" one this way:**
 <!-- It's the hardest of the three. It has to admit uncertainty without
      sounding like an accusation, because the person reading it may well have
      written every word themselves. -->
 
-I describe the uncertainty as a limitation of our checks, so the message does
-not suggest that the writer has done something wrong. It uses plain language
-instead of scores or technical terms. Offering a review gives the writer a
-clear next step without promising that the assessment will be overturned.
+"Due to the nature the mathematical computation involved to arrive at the conclusion, it is possible that it has been evaluated as unsure though it was written by human. If that is the case please request for human revaluation and submit various vesions of the work product so as it can be human evaluated"
 
 ---
 
@@ -340,17 +535,33 @@ differ from the log and will need to be made consistent as the route is complete
 
 ## Rate Limiting
 
-**My limits:** ___ per minute, ___ per day
+**My limits:** 5 submissions per minute and 50 per day, configured in `config.py`.
+Both limits apply to `POST /submit` when the service starts with rate limiting enabled:
+
+```bash
+AI201_RATE_LIMITS=1 .venv/bin/python app.py
+```
+
+Rate limiting is disabled by default. Requests that exceed either limit return
+HTTP `429` with a JSON error, the exceeded limit, and a `Retry-After` header.
+Each rejection is recorded in the audit log before any model scoring runs.
+Other routes do not consume the submission allowance. In-memory counters reset
+when the service restarts and are not shared between server processes.
 
 **Why those numbers and not others:**
+Five submissions per minute allow a few quick revisions, while 50 per day
+limits sustained automated submissions from the same caller. These are initial
+limits to evaluate against normal use and the attack tests.
+
 <!-- Think about two people: a real writer submitting their own work a few
      times an hour, and a script sending a thousand variations to map your
      thresholds. Your numbers have to be liveable for the first and hostile to
      the second. -->
 
-**What a caller counts as:** <!-- per address, or per creator_id? They fail
-differently — one script can look like a thousand callers, and one household
-can look like one. -->
+**What a caller counts as:** A nonblank string `creator_id`, falling back to the
+request's IP address when that ID is absent or invalid. Creator IDs are supplied
+by callers, so changing IDs creates separate allowances; callers without IDs
+who share an IP share an allowance. Invalid submissions also count toward the limits.
 
 **The run of status codes when I pushed past it:**
 

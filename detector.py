@@ -53,6 +53,10 @@ class DetectorUnavailable(RuntimeError):
     """The model couldn't be loaded — no download yet, or no disk."""
 
 
+class TextTooShortError(ValueError):
+    """The input has too few tokens for the detector to score."""
+
+
 def _load():
     """Load the model once and keep it. First call downloads ~550 MB."""
     global _model, _tokenizer
@@ -104,7 +108,9 @@ def perplexity(text: str) -> float:
 
     # Two tokens is not enough to be surprised by anything.
     if input_ids.shape[1] < 3:
-        raise ValueError("Text is too short to score — a few sentences at least.")
+        # raise ValueError("Text is too short to score — a few sentences at least.")
+        # Give the route a specific error it can return as a bad request.
+        raise TextTooShortError("Text is too short to score — a few sentences at least.")
 
     with torch.no_grad():
         output = model(input_ids, labels=input_ids)
