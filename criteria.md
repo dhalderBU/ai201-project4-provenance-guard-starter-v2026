@@ -49,7 +49,7 @@ Out of five confirmed human-written pieces, no more than two may receive the lab
 
 
 **Why this target:**
-This is the most critical requirement and is the core requirement . Ideally I would like it to be 20% or above but as we dont know how much of training has been done I will keep it at false positive max allowed 40%) . 
+This is the most critical requirement and is the core requirement . Ideally I would like it to be 20% or below but as we dont know how much of training has been done I will keep it at false positive max allowed 40%) . 
 
 
 ---
@@ -84,13 +84,18 @@ I feel we should only classify it as AI written when we have high degree of conf
 ## 4. Process of Appeal
 
 <!-- Your criterion. -->
-Every appeal with an existing content_id and non-empty reasoning must be logged and marked under_review. Rescore the original text five times. Use the classification receiving at least three votes; otherwise, return unsure. Log all five results and return confirmation.
+Every appeal with an existing content_id and non-empty reasoning must be logged and marked under_review. Rescore the text three times based on below and receive label. 
+- Original Text
+- Original text with first sentence removed
+- Original text with last sentence removed 
 
-For an unsure result, display:
+Based on majority lable we can confirm the result. If we dont have majority which is `unsure` we can the provide the results in appeal process. In appeals process we will use slightly different weightage model where we will take 0.6 of Models_score and 0.4 of style_score thereby increasing the style component. 
+
+In case the majority is `unsure' then we can respond with  :
 “Based on revaluation we do not have enough evidence to determine how this text was written. Your appeal has been recorded.”
 
 **Why this target:**
-We will not reduce the threshold for appeal but we will make sure majority of five evaluation comes out positive. THis gives us enough confidence. The message passed to the submitter is also customeized for appeal 
+We will make sure majority of three comes out to give us the result. The reason we are modifying the body because the scores are deterministic as we are not using LLM and instead using detector for modelscore and the Style_score is also deterministic. We are putting more emphasis on style this time
 
 
 ---
