@@ -21,7 +21,7 @@ import config
 
 LABEL_TEXT = {
     "human": (
-        "Our checks suggest this text was written by a person. "
+        "Our checks  suggest this text was written by a person. "
         "This assessment can be wrong."
     ),
     "unsure": (

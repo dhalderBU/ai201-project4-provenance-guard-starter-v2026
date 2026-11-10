@@ -893,8 +893,8 @@ I used this information to create my methods in stylometry.py and scoring.py .
 
 **Moment 2 — i dont have many samples to train. SO give me the standard rule to be followed for short paragraph of 6-10 lines**
 
-- *What I asked for:* i dont have many samples to train. SO give me the standard rule to be followed for short paragraph of 6-10 lines
-- *What came back:* Decision rule
+- *What I asked for:* i  dont have many samples to train. SO give me the standard rule to be followed for short paragraph of 6-10 lines
+- *What came back:* Decision rule.
 
 ≥ 0.65 → likely AI
 0.40 – 0.65 → uncertain
