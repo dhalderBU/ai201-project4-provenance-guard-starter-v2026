@@ -73,7 +73,7 @@ def log_decision(
     return _append(entry)
 
 
-def log_appeal(content_id: str, creator_id: str, reasoning: str) -> dict:
+def log_appeal(content_id: str, creator_id: str, reasoning: str, **extra) -> dict:
     """
     Record an appeal beside the original decision.
 
@@ -89,6 +89,20 @@ def log_appeal(content_id: str, creator_id: str, reasoning: str) -> dict:
         "event": "appeal",
         "status": "under_review",
         "reasoning": reasoning,
+        **extra,
+    })
+
+
+def log_appeal_result(content_id: str, creator_id: str, appeal_id: str, **result) -> dict:
+    """Append the automated recheck while leaving the appeal under review."""
+    return _append({
+        "timestamp": _now(),
+        "content_id": content_id,
+        "creator_id": creator_id,
+        "appeal_id": appeal_id,
+        "event": "appeal_reassessment",
+        "status": "under_review",
+        **result,
     })
 
 

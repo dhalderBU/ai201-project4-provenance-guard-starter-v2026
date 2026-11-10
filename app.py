@@ -36,15 +36,8 @@ app = Flask(__name__)
 
 
 # ── Rate limiting — UNIT 8 ────────────────────────────────────────────────────
-# Off until you turn it on. In unit 8, Milestone 1:
-#
-#   1. Set RATE_LIMITING_ENABLED = True in config.py (or AI201_RATE_LIMITS=1)
-#   2. Choose your numbers there
-#   3. Uncomment the @limiter.limit(...) line on /submit below
-#
-# The order doesn't matter. While limiting is off, that decorator is a no-op
-# that quietly does nothing, so uncommenting it early costs you nothing — but
-# it also means no 429 until you've done step 1.
+# Enabled by default. The /submit decorator applies both limits from config.py.
+# AI201_RATE_LIMITS=0 disables limiting and leaves the route untouched.
 #
 # The storage backend is preconfigured, which stops Flask-Limiter printing a
 # warning on every start. In-memory is right for one laptop and wrong for
@@ -54,9 +47,7 @@ class _LimiterOff:
     """
     Stands in for the real limiter while rate limiting is off.
 
-    It makes @limiter.limit(...) a decorator that returns the route
-    untouched, so uncommenting the line before you flip the setting is
-    harmless instead of a crash on startup.
+    It makes @limiter.limit(...) a decorator that returns the route untouched.
     """
 
     def limit(self, *args, **kwargs):
@@ -92,6 +83,7 @@ if config.RATE_LIMITING_ENABLED:
         app=app,
         storage_uri=config.RATE_LIMIT_STORAGE,
         default_limits=[],
+        headers_enabled=True,
     )
 
     @app.errorhandler(429)
@@ -111,7 +103,7 @@ if config.RATE_LIMITING_ENABLED:
         )
         return jsonify({
             "error": "rate_limited",
-            "message": "Too many submissions. Try again shortly.",
+            "message": "Too many submissions. Please wait before trying again.",
             "limit": str(exc.description),
         }), 429
 
@@ -152,7 +144,7 @@ def health():
 # ── YOU BUILD THIS ────────────────────────────────────────────────────────────
 
 @app.post("/submit")
-# @limiter.limit(f"{config.RATE_LIMIT_PER_MINUTE}/minute;{config.RATE_LIMIT_PER_DAY}/day")
+@limiter.limit(f"{config.RATE_LIMIT_PER_MINUTE}/minute;{config.RATE_LIMIT_PER_DAY}/day")
 def submit():
     """
     Take a piece of text, decide about it, log the decision, answer.
@@ -200,7 +192,15 @@ def submit():
     what should this do when `text` is missing, empty, or enormous? A crash on
     a malformed input is one of the most common real failures there is.
     """
-    payload = request.get_json(silent=True) or {}
+    # Flask decodes valid JSON escapes and preserves backticks in the text.
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({
+            "error": "bad_request",
+            "message": (
+                "Invalid JSON. Send a JSON object containing text and creator_id."
+            ),
+        }), 400
 
     text = payload.get("text")
     creator_id = payload.get("creator_id", "unknown")
@@ -224,38 +224,35 @@ def submit():
 
     # Below lines commented so as to setup styling with default values
     import stylometry
-    style_score = 0.5
+    #style_score = 0.5
 
-    #try:
-    #    style_score = stylometry.style_signal(text)
-    #except stylometry.TextTooShortError as exc:
-    #    return jsonify({"error": "bad_request", "message": str(exc)}), 400
+    try:
+        style_score = stylometry.style_signal(text)
+    except stylometry.TextTooShortError as exc:
+        return jsonify({"error": "bad_request", "message": str(exc)}), 400
 
 
-    # implement scoring and labeling logic here. For now, we will use default values for combined_score, label, and confidence.
+    # Combine the signals and select the label and reader-facing sentence.
     import scoring
-    combined_score =0.5
-    label = "unsure"
-    confidence = 0.5
-    status="decided"
 
-    # Below lines commented so as to setup with default values
-    #combined_score = scoring.combine_signals(model_score, style_score)
-    #label, confidence = scoring.score_to_label(combined_score)
-
-    
+    combined_score = scoring.combine_signals(model_score, style_score)
+    label, confidence = scoring.score_to_label(combined_score)
+    label_text = scoring.LABEL_TEXT[label]
 
     # Step 4 - log the decision. The content_id is what /appeal needs later.
     content_id = f"c_{uuid.uuid4().hex[:12]}"
     audit.log_decision(
         content_id=content_id,
         creator_id=creator_id,
+        guess=label,
+        text=text,
         model_score=model_score,
         style_score=style_score,
         combined_score=combined_score,
         label=label,
+        label_text=label_text,
         confidence=confidence,
-        status=status,
+        status="decided",
     )
 
     # Step 2 - JSON goes in: pull text and creator_id out of the body
@@ -264,43 +261,57 @@ def submit():
     # Step 1 - to get the route working without any logic
     return jsonify({
         "content_id": content_id,
-        "guess": "unsure",
-        "confidence": 0.5,
-        "label": "not built yet",
+        "guess": label,
+        "label": label,
+        "label_text": label_text,
+        "combined_score": combined_score,
+        "confidence": confidence,
         "model_score": model_score,
-        "style_score": None,
+        "style_score": style_score,
     }), 200
 
   
 
 @app.post("/appeal")
 def appeal():
-    """
-    A writer says you got it wrong. ← TODO — Milestone 5
+    """Record an appeal and run the three-variant recheck from criteria.md."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({
+            "error": "bad_request",
+            "message": "Send a JSON object containing content_id and reasoning.",
+        }), 400
 
-    Expects JSON:
-        {"content_id": "...", "reasoning": "..."}
+    content_id = payload.get("content_id")
+    reasoning = payload.get("reasoning")
+    if not isinstance(content_id, str) or not content_id.strip():
+        return jsonify({"error": "bad_request", "message": "Provide a non-empty content_id."}), 400
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        return jsonify({"error": "bad_request", "message": "Provide non-empty reasoning."}), 400
+    content_id = content_id.strip()
+    reasoning = reasoning.strip()
 
-    Should:
-      1. Check the content_id actually exists — `audit.entries_for(id)` tells
-         you. A typo here fails silently and looks like a broken endpoint,
-         which is the single most common way this milestone eats an hour.
-      2. Record the appeal with `audit.log_appeal(...)`, which moves the item
-         to `under_review`.
-      3. Confirm to the writer. No automatic re-checking needed.
+    entries = audit.entries_for(content_id)
+    decision = next((entry for entry in entries if entry.get("status") == "decided"), None)
+    if decision is None:
+        return jsonify({"error": "not_found", "message": "No submission exists for that content_id."}), 404
 
-    This is the smallest endpoint in the project and the one that matters most
-    to the person on the other end. It's the only thing standing between a
-    wrong accusation and nothing at all.
-    """
-    payload = request.get_json(silent=True) or {}
+    creator_id = decision.get("creator_id", "unknown")
+    appeal_id = f"a_{uuid.uuid4().hex[:12]}"
+    # Record acceptance before running inference, so even a failed recheck
+    # leaves the writer's appeal and under_review status in the audit trail.
+    audit.log_appeal(content_id, creator_id, reasoning, appeal_id=appeal_id)
 
-    # TODO: delete this and build the route.
+    import appeals
+
+    result = appeals.reassess(decision.get("text"))
+    audit.log_appeal_result(content_id, creator_id, appeal_id, **result)
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /appeal isn't built yet — see the TODO in app.py.",
-        "you_sent": payload,
-    }), 501
+        "content_id": content_id,
+        "appeal_id": appeal_id,
+        "status": "under_review",
+        **result,
+    }), 200
 
 
 # ── Already works ─────────────────────────────────────────────────────────────
@@ -316,14 +327,20 @@ def get_log():
     now to see whether your logging is actually working.
     """
     limit = request.args.get("limit", type=int)
-    entries = audit.read_entries(limit=limit)
+    content_id = request.args.get("content_id")
+    if content_id is not None:
+        entries = audit.entries_for(content_id)
+        if limit:
+            entries = entries[-limit:]
+    else:
+        entries = audit.read_entries(limit=limit)
     return jsonify({"count": len(entries), "entries": entries})
 
 
 def main():
     print(f"Provenance Guard on http://{config.HOST}:{config.PORT}")
     print(f"  detector model:  {config.DETECTOR_MODEL}")
-    print(f"  rate limiting:   {'ON' if config.RATE_LIMITING_ENABLED else 'off (unit 8)'}")
+    print(f"  rate limiting:   {'ON' if config.RATE_LIMITING_ENABLED else 'off (AI201_RATE_LIMITS=0)'}")
     print(f"  audit log:       {config.AUDIT_LOG}")
     print()
     print("Check it's alive:")

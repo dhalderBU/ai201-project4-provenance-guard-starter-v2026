@@ -57,6 +57,11 @@ WEIGHT_MODEL_SIGNAL = 0.7
 WEIGHT_STYLE_SIGNAL = 0.3
 
 
+# Appeals compare three text variants with more weight on style (criteria.md).
+APPEAL_WEIGHT_MODEL_SIGNAL = 0.6
+APPEAL_WEIGHT_STYLE_SIGNAL = 0.4
+
+
 # ─── Thresholds (Milestone 5) ────────────────────────────────────────────────
 # Where one label becomes another. Scores run 0.0 (confidently human) to 1.0
 # (confidently AI).
@@ -83,13 +88,13 @@ AI_THRESHOLD = 0.60
 
 
 # ─── Rate limiting (UNIT 8) ──────────────────────────────────────────────────
-# Off in unit 7. You turn it on and choose the numbers in unit 8, Milestone 1.
+# Enabled by default. Set AI201_RATE_LIMITS=0 to disable it explicitly.
 #
 # Think about two people: a real writer submitting their own work a few times
 # an hour, and a script sending a thousand variations to map your thresholds.
 # Your README has to say why your numbers and not others.
 
-RATE_LIMITING_ENABLED = os.getenv("AI201_RATE_LIMITS", "0") == "1"
+RATE_LIMITING_ENABLED = os.getenv("AI201_RATE_LIMITS", "1") == "1"
 
 RATE_LIMIT_PER_MINUTE = 5
 RATE_LIMIT_PER_DAY = 50
