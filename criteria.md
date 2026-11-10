@@ -69,14 +69,19 @@ Since the AI authored articles will have higher combined score. Without a gap of
 ## 3. Label reachability
 
 <!-- Your criterion. -->
-Atleast 4 of 5 cases the label should be correctly reached based on below thresholds for combined score :
-Any score equal or more than 0.65 is  AI generated
-Any score >= 0 and less than 0.35 is  clearly_human
-Any score  between 0.35 but lower than 0.65 is borderline 
+At least 4 of 5 test cases should receive the correct label. The combined-score
+ranges match `config.py` and the README:
+
+- `0.00 <= score <= 0.45`: `human`.
+- `0.45 < score < 0.60`: `unsure` (borderline).
+- `0.60 <= score <= 1.00`: `ai`.
 
 
 **Why this target:**
-I feel we should only classify it as AI written when we have high degree of confidence so keeping that score threshold as 0.65 for AI generated. If we make it too low there is a possibility that writers actual writings will be falsely classified as AI written.  
+The AI boundary is `0.60`, and the human boundary is `0.45`, leaving an unsure
+range between them. Lowering the AI boundary can increase false accusations
+against human writers. These are decision settings to evaluate on labeled
+samples, not calibrated probabilities of authorship.
 
 
 ---
