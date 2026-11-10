@@ -89,10 +89,12 @@ Every appeal with an existing content_id and non-empty reasoning must be logged 
 - Original text with first sentence removed
 - Original text with last sentence removed 
 
-Based on majority lable we can confirm the result. If we dont have majority which is `unsure` we can the provide the results in appeal process. In appeals process we will use slightly different weightage model where we will take 0.6 of Models_score and 0.4 of style_score thereby increasing the style component. 
+Based on majority lable the application will confirm the result. If the majority is either AI or Human then the application will respond withe lable for the majority. In appeals process we will use slightly different weightage model where we will take 0.6 of Models_score and 0.4 of style_score thereby increasing the style component. 
 
-In case the majority is `unsure' then we can respond with  :
+In case the majority is `unsure' then the application will respond with  :
 “Based on revaluation we do not have enough evidence to determine how this text was written. Your appeal has been recorded.”
+
+Incase the response lable is AI  after an Appeal was revaluated, the application will also send a message : "Due to the nature the mathematical computation involved in arriving at the conclusion, it is possible that it has been evaluated as unsure though it was written by human. If that is the casae please request for human re-evaluation and submit various vesions of the work product so as it can be human evaluated"
 
 **Why this target:**
 We will make sure majority of three comes out to give us the result. The reason we are modifying the body because the scores are deterministic as we are not using LLM and instead using detector for modelscore and the Style_score is also deterministic. We are putting more emphasis on style this time
