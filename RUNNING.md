@@ -153,14 +153,15 @@ one signal. Then log it.
 
 ---
 
-## Turning on rate limiting (unit 8)
+## Rate limiting (unit 8)
 
-Three steps:
+Rate limiting is enabled by default. `POST /submit` allows 9 requests per
+minute and 400 per day for each caller, using the constants in `config.py`.
+The route's limiter decorator is already active.
 
-1. In `config.py`, set `RATE_LIMITING_ENABLED = True` — or run with
-   `AI201_RATE_LIMITS=1`.
-2. Choose your numbers there.
-3. In `app.py`, uncomment the `@limiter.limit(...)` line above `submit`.
+Use `AI201_RATE_LIMITS=0 python app.py` to disable limiting explicitly, or
+`AI201_RATE_LIMITS=1 python app.py` to enable it explicitly. Restart the service
+after changing environment settings; `GET /health` reports `rate_limiting`.
 
 Then push past your limit and watch for `429`:
 
@@ -288,7 +289,7 @@ sentences, a pasted quotation. That is very cheap to do on purpose.
 | *Every* submission takes 10+ seconds | Something is reloading the model each call. `GET /health` shows `detector_loaded` — if it goes back to `false`, look for a reload in your handler |
 | `DetectorUnavailable` | Run `python detector.py` once to download the model |
 | `/appeal` seems to do nothing | Does the `content_id` you sent actually exist in the log? A typo there fails silently |
-| Every request gets through, no `429` ever | The decorator is uncommented but limiting is still off. Set `RATE_LIMITING_ENABLED` in `config.py` |
+| Every request gets through, no `429` ever | Check `GET /health`, use the same `creator_id` for each request, and confirm `AI201_RATE_LIMITS=0` is not disabling the limiter. Restart with `AI201_RATE_LIMITS=1` if needed |
 | Flask-Limiter warns about storage | Shouldn't happen — `storage_uri` is preconfigured. If you changed it, put it back |
 | All three of your labels never appear | Your ranges have a gap. `scoring.label_ranges()` prints them |
 

@@ -29,6 +29,24 @@ PUNCTUATION_AI_ANCHOR = 0.14
 TTR_AI_ANCHOR = 0.62
 TTR_HUMAN_ANCHOR = 0.80
 
+# ***deb..start stretch feature*** length-normalized TTR***
+# Whole-text TTR falls as text gets longer (more words -> more reuse), so with
+# fixed anchors every paragraph over ~130 words saturates at ttr_ai = 1.0 and
+# every paragraph under ~90 words reads as human, whoever wrote it.
+#
+# Moving-average TTR (MATTR, Covington & McFall 2010) fixes that: slide a
+# fixed window over the tokens, take the TTR inside each window, average.
+# The value then does not drift with length and one pair of anchors works
+# for 60-word and 170-word paragraphs alike.
+#
+# TTR_WINDOW = 0 keeps the supplied whole-text behaviour. Any positive number
+# turns MATTR on with that window size (50 is the usual choice). Windowed TTR
+# runs higher than whole-text TTR on long inputs, so MATTR gets its own anchors.
+TTR_WINDOW = 50
+MATTR_AI_ANCHOR = 0.72
+MATTR_HUMAN_ANCHOR = 0.86
+# ***deb ..end of stretch feature*** length-normalized TTR***
+
 STYLE_WEIGHT_SPREAD = 0.50
 STYLE_WEIGHT_PUNCTUATION = 0.20
 STYLE_WEIGHT_TTR = 0.30
@@ -89,6 +107,33 @@ def type_token_ratio(text: str) -> float:
     return len(set(tokens)) / len(tokens)
 
 
+# ***deb..start stretch feature*** length-normalized TTR***
+def moving_average_ttr(text: str, window: int) -> float:
+    """Return the mean TTR over every window-sized run of tokens (MATTR).
+
+    Text shorter than the window falls back to whole-text TTR, which is the
+    same number MATTR would give with the window clipped to the text.
+    """
+    tokens = words(text)
+    if not tokens:
+        return 0.0
+    if len(tokens) <= window:
+        return len(set(tokens)) / len(tokens)
+    total = 0.0
+    for start in range(len(tokens) - window + 1):
+        chunk = tokens[start:start + window]
+        total += len(set(chunk)) / window
+    return total / (len(tokens) - window + 1)
+
+
+def ttr_measure(text: str) -> tuple[float, float, float]:
+    """Return (value, ai_anchor, human_anchor) for whichever TTR mode is on."""
+    if TTR_WINDOW > 0:
+        return moving_average_ttr(text, TTR_WINDOW), MATTR_AI_ANCHOR, MATTR_HUMAN_ANCHOR
+    return type_token_ratio(text), TTR_AI_ANCHOR, TTR_HUMAN_ANCHOR
+# ***deb ..end of stretch feature*** length-normalized TTR***
+
+
 def punctuation_density(text: str) -> float:
     """Return structural punctuation marks per word, or 0.0 without words.
 
@@ -117,10 +162,10 @@ def style_subscores(text: str) -> tuple[float, float, float] | None:
         (punctuation_density(text) - PUNCTUATION_HUMAN_ANCHOR)
         / (PUNCTUATION_AI_ANCHOR - PUNCTUATION_HUMAN_ANCHOR)
     )
-    ttr_ai = clamp01(
-        (TTR_HUMAN_ANCHOR - type_token_ratio(text))
-        / (TTR_HUMAN_ANCHOR - TTR_AI_ANCHOR)
-    )
+    # ***deb..start stretch feature*** length-normalized TTR***
+    ttr, ttr_ai_anchor, ttr_human_anchor = ttr_measure(text)
+    ttr_ai = clamp01((ttr_human_anchor - ttr) / (ttr_human_anchor - ttr_ai_anchor))
+    # ***deb ..end of stretch feature*** length-normalized TTR***
     return spread_ai, punct_ai, ttr_ai
 
 
@@ -145,21 +190,28 @@ def style_score(text: str) -> float | None:
     unique_count = len(set(tokens))
     punctuation_count = len(re.findall(STRUCTURAL_PUNCTUATION_PATTERN, text))
     density = punctuation_density(text)
-    ttr = type_token_ratio(text)
+    # ***deb..start stretch feature*** length-normalized TTR***
+    ttr, ttr_ai_anchor, ttr_human_anchor = ttr_measure(text)
+    ttr_line = (
+        f"ttr = mean TTR over {TTR_WINDOW}-word windows (MATTR) = {ttr:.6f}  [{word_count} words]"
+        if TTR_WINDOW > 0 else
+        f"ttr = unique_lowercase_words / words = {unique_count} / {word_count} = {ttr:.6f}"
+    )
+    # ***deb ..end of stretch feature*** length-normalized TTR***
     punctuation_unclamped = (
         (density - PUNCTUATION_HUMAN_ANCHOR)
         / (PUNCTUATION_AI_ANCHOR - PUNCTUATION_HUMAN_ANCHOR)
     )
-    ttr_unclamped = (TTR_HUMAN_ANCHOR - ttr) / (TTR_HUMAN_ANCHOR - TTR_AI_ANCHOR)
+    ttr_unclamped = (ttr_human_anchor - ttr) / (ttr_human_anchor - ttr_ai_anchor)
     print(
         f"punctuation_density = structural_marks / words = "
         f"{punctuation_count} / {word_count} = {density:.6f}\n"
         f"punctuation_ai = clamp01(({density:.6f} - {PUNCTUATION_HUMAN_ANCHOR:g}) / "
         f"({PUNCTUATION_AI_ANCHOR:g} - {PUNCTUATION_HUMAN_ANCHOR:g})) "
         f"= clamp01({punctuation_unclamped:.6f}) = {punct_ai:.4f}\n"
-        f"ttr = unique_lowercase_words / words = {unique_count} / {word_count} = {ttr:.6f}\n"
-        f"ttr_ai = clamp01(({TTR_HUMAN_ANCHOR:g} - {ttr:.6f}) / "
-        f"({TTR_HUMAN_ANCHOR:g} - {TTR_AI_ANCHOR:g})) "
+        f"{ttr_line}\n"
+        f"ttr_ai = clamp01(({ttr_human_anchor:g} - {ttr:.6f}) / "
+        f"({ttr_human_anchor:g} - {ttr_ai_anchor:g})) "
         f"= clamp01({ttr_unclamped:.6f}) = {ttr_ai:.4f}\n"
         "style_score = (weight_spread * spread_ai) + "
         "(weight_punctuation * punctuation_ai) + (weight_ttr * ttr_ai)\n"

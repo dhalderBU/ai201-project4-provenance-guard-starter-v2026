@@ -53,6 +53,10 @@ if not hasattr(ms, "_load"):
 PERFORMER = getattr(config, "BINOCULARS_PERFORMER", "distilgpt2")
 MIDPOINT = getattr(config, "BINOCULARS_MIDPOINT", 0.90)    # B that maps to 0.5
 STEEPNESS = getattr(config, "BINOCULARS_STEEPNESS", 12.0)
+# Positions to leave out of the averages. The first few tokens of any text are
+# scored with almost no context, so they are high-surprisal whoever wrote them,
+# and on short inputs that burn-in can dominate the ratio. 0 = use every position.
+SKIP_TOKENS = getattr(config, "BINOCULARS_SKIP_TOKENS", 0)
 
 _performer = None
 
@@ -97,9 +101,12 @@ def binoculars_score(text: str) -> dict:
     if input_ids.shape[1] < 3:
         raise ms.TextTooShortError("Text is too short to score — a few sentences at least.")
 
+    # Drop the first SKIP_TOKENS predictions, but never so many that nothing is left.
+    skip = min(SKIP_TOKENS, max(input_ids.shape[1] - 3, 0))
+
     with torch.no_grad():
-        obs_logits = observer(input_ids).logits[:, :-1, :]      # predicts tokens 1..T-1
-        targets = input_ids[:, 1:]
+        obs_logits = observer(input_ids).logits[:, skip:-1, :]   # predicts tokens skip+1..T-1
+        targets = input_ids[:, skip + 1:]
 
         # (1) observer's log-perplexity = mean NLL of the actual tokens
         log_ppl = F.cross_entropy(obs_logits.transpose(1, 2), targets).item()
@@ -107,7 +114,7 @@ def binoculars_score(text: str) -> dict:
         # (2) cross-perplexity
         logp_obs = F.log_softmax(obs_logits, dim=-1)
         if performer is not None:
-            perf_logits = performer(input_ids).logits[:, :-1, :]
+            perf_logits = performer(input_ids).logits[:, skip:-1, :]
             p_perf = F.softmax(perf_logits, dim=-1)
             x_ppl = -(p_perf * logp_obs).sum(-1).mean().item()
         else:
@@ -120,6 +127,8 @@ def binoculars_score(text: str) -> dict:
         "perplexity": math.exp(log_ppl),
         "cross_perplexity": x_ppl,
         "mode": "binoculars" if performer is not None else "single-model (NLL/entropy)",
+        "tokens": int(input_ids.shape[1]),
+        "skipped": skip,
     }
 
 

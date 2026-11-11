@@ -34,30 +34,39 @@
 
 <!-- ═══════════════════════ UNIT 7 — THE BUILD ═══════════════════════ -->
 
-## What This Does
+## What This Does (includes stretch feature)
 
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
-Provenance Guard estimates how AI-like a passage looks using two signals. The
-score is a heuristic assessment, not proof of who wrote the text.
+I estimate how AI-like text looks using perplexity, Binoculars, and style
+measurements including MATTR. I treat the result as a heuristic, not proof of
+authorship.
 
-1. `POST /submit` receives a JSON object containing `text` and an optional
-   `creator_id`.
-2. The route validates the request. Invalid JSON, empty text, or text too short
-   for either signal returns HTTP `400`.
-3. `detector.model_signal(text)` uses a local language model to measure text
-   predictability and returns a model score between 0 and 1.
-4. `stylometry.style_signal(text)` measures sentence-length spread, punctuation
-   density, and vocabulary diversity, returning a style score between 0 and 1.
-5. `scoring.py::combine_signals` combines the scores using
-   `WEIGHT_MODEL_SIGNAL = 0.7` and `WEIGHT_STYLE_SIGNAL = 0.3` from `config.py`.
-6. `scoring.score_to_label` applies the configured boundaries to choose
-   `human`, `unsure`, or `ai`. `scoring.LABEL_TEXT` supplies the reader-facing
-   sentence.
-7. The service generates a `content_id`, saves the original text and decision
-   in the audit log, and returns the label and scores. The writer can use that
-   ID to appeal; the appeal and its recheck results are appended as
-   `under_review` events.
+1. I accept `text` and an optional `creator_id` at `POST /submit`.
+2. I reject invalid JSON, empty text, and insufficient text with HTTP `400`.
+3. I calculate perplexity with `detector.model_signal(text)`. At 100 words or
+   more, I blend it 50/50 with Binoculars when available; otherwise I use
+   perplexity alone.
+4. I calculate sentence-length spread, punctuation density, and MATTR with
+   `stylometry.style_signal(text)`.
+5. I combine 70% model score and 30% style score in `scoring.py::combine_signals`.
+6. I select `human`, `unsure`, or `ai` with `scoring.score_to_label` and return
+   the corresponding sentence from `scoring.LABEL_TEXT`.
+7. I save the text in `logs/submissions.jsonl` and the decision in `logs/audit.jsonl`,
+   linked by `content_id`. I offer automatic appeals
+   or human verification with supporting text and a reviewer decision.
+
+I link these JSONL files by `content_id`, with one JSON object per line:
+
+| File | What I store |
+|---|---|
+| `logs/submissions.jsonl` | `timestamp` in UTC (`+00:00`), `content_id`, `creator_id`, `text`, `guess`, `label`, `label_text`, `confidence`, `status` (`"decided"`), `model_score`, `style_score`, `combined_score`, `perplexity_score`, `binoculars_score`, `binoculars_used`, and `word_count`. |
+| `logs/audit.jsonl` | Decision scores, labels, status, appeal evidence, and review outcomes. New decisions omit the submitted text. |
+| `logs/verified_human_certification_log.jsonl` | Approved certificates with `Certificate_id` and `verified_dt_time` explicitly in UTC. |
+
+I save the same initial decision values in the submission and audit files.
+The submission keeps its initial `decided` status; reviews append their outcomes
+to the audit log, and `GET /content/<id>` returns the current status.
 
 ---
 
@@ -73,44 +82,90 @@ score is a heuristic assessment, not proof of who wrote the text.
 
 **What it measures:**
 
-`detector.model_signal(text)` runs GPT-2 locally by default, using the model
-selected by `DETECTOR_MODEL` in `config.py`. It calculates perplexity from the
-model's prediction loss: lower perplexity means the text is easier for that
-model to predict. The code then converts perplexity to a score between 0 and 1:
+I use `detector.model_signal(text)` to calculate perplexity with a local model,
+GPT-2 by default (`config.DETECTOR_MODEL`). Lower perplexity means the text is
+easier for that model to predict. I convert it to an AI-oriented score:
 
 ```text
-model_score = 1 / (1 + (perplexity / 45.0) ** 1.6)
+perplexity_score = 1 / (1 + (perplexity / 45.0) ** 1.6)
 ```
 
-The returned score is rounded to four decimal places. Higher values are
-treated as stronger AI-like evidence. The model scores the supplied text;
-it does not generate an answer about the writer's identity.
+I clamp the score to `[0, 1]` and round to four decimals. Higher means more
+AI-like; the model scores text rather than identifying its author.
+
+For my stretch feature, I use `binoculars_signal.py::binoculars_signal`, inspired
+by Hans et al. (2024),
+[*Spotting LLMs With Binoculars: Zero-Shot Detection of Machine-Generated Text*](https://proceedings.mlr.press/v235/hans24a.html),
+published at ICML 2024. I use GPT-2 and DistilGPT-2 with matching tokenizer
+vocabularies. My 50/50 blend is a scoring choice in this project.
+
+In `app.py::submit`, I use the blend only when Binoculars succeeds and
+`len(text.split()) >= BINOCULARS_MIN_WORDS` (currently `100`):
+
+```python
+if binoculars_used:
+    model_score = round(0.5 * perplexity_score + 0.5 * binoculars_score, 4)
+else:
+    model_score = perplexity_score
+```
+
+I still calculate and return Binoculars for shorter inputs, but set
+`binoculars_used` to `false`. I also use perplexity alone if Binoculars raises
+`detector.DetectorUnavailable`. I then combine 70% model and 30% style through
+`scoring.py::combine_signals`.
 
 **Why that might differ between human and AI writing:**
 
-The working hypothesis is that generated text may use predictable phrasing.
-Human writing can contain unusual choices, but people also write plainly and
-repeat familiar expressions. Predictability alone cannot establish authorship.
+I treat predictable phrasing as possible AI-like evidence, but people also
+write plainly and repeat familiar expressions. Predictability cannot establish
+authorship.
 
 **What it can't see:**
 
-With the current GPT-2 tokenizer, `DETECTOR_MAX_TOKENS = 400` keeps the first
-400 tokens and truncates the rest. The model score therefore does not evaluate
-the full passage when the input exceeds that limit. It does not use editing
-history or authorship records. Plain human writing can receive a high score,
-and unfamiliar vocabulary can lower the score regardless of who wrote it.
+I score only the first 400 tokens (`DETECTOR_MAX_TOKENS`), without editing
+history or authorship records. Plain human writing can score high; unusual
+vocabulary can lower the score regardless of who wrote it.
 
 ### Signal two — the style signal
 
 **What it measures:**
 
-The three individual measurement functions implement the supplied sample code:
+I measure sentence-length spread, structural punctuation density, and
+vocabulary diversity using moving-average type-token ratio (MATTR) in
+`stylometry.py`. I count lowercase word tokens using `words(text)` and its
+`[A-Za-z']+` pattern:
 
 | Method | Raw measurement | Empty-input result |
 | --- | --- | --- |
-| `sentence_length_spread(text)` | Population standard deviation of sentence word counts divided by their mean | `0.0` |
-| `punctuation_density(text)` | Count of `, ; : — – ( )` divided by the number of words | `0.0` |
-| `type_token_ratio(text)` | Unique lowercase word tokens divided by all word tokens | `0.0` |
+| `sentence_length_spread(text)` | Population standard deviation of sentence token counts divided by their mean | `0.0` |
+| `punctuation_density(text)` | Count of `, ; : — – ( )` divided by the total word-token count | `0.0` |
+| `moving_average_ttr(text, 50)` via `ttr_measure(text)[0]` | Mean of unique tokens / 50 across overlapping 50-token windows; whole-text TTR at 50 tokens or fewer | `0.0` |
+
+I use `TTR_WINDOW = 50`. `ttr_measure(text)` returns
+`(value, ai_anchor, human_anchor)`; the table shows its measurement value.
+These empty-input zeros apply to the raw measurements. The combined
+`style_signal(text)` requires at least three sentences and 40 word tokens,
+otherwise it raises `TextTooShortError`.
+
+**Stretch feature — what MATTR means:**
+
+MATTR means **moving-average type-token ratio**: distinct lowercase words
+divided by word occurrences, averaged over sliding windows. I use
+`moving_average_ttr(text, 50)` through `ttr_measure(text)` to average windows
+1–50, 2–51, and so on. At 50 word tokens or fewer, I use whole-text TTR
+with the active MATTR anchors (`0.72`, `0.86`).
+
+I keep `type_token_ratio(text)` available. Setting `TTR_WINDOW = 0` selects
+whole-text TTR and its original anchors.
+
+**Why use MATTR (proposed by claude):**
+
+I use MATTR to reduce the length sensitivity of whole-text TTR, which tends
+to fall as longer passages repeat words. Equal-sized windows make vocabulary
+diversity easier to compare. I follow Covington and McFall (2010),
+[*Cutting the Gordian Knot: The Moving-Average Type–Token Ratio (MATTR)*](https://www.tandfonline.com/doi/abs/10.1080/09296171003643098).
+I chose the 50-word window and anchors for this project; MATTR measures
+vocabulary diversity, not authorship.
 
 Sentence splitting uses whitespace after `.`, `!`, or `?`. Tokenization uses
 `[A-Za-z']+`, matching the sample: digits are excluded, straight apostrophes
@@ -118,15 +173,20 @@ stay within tokens, and curly apostrophes split tokens. Wordless sentence
 fragments remain in the spread distribution, also matching the sample.
 Structural punctuation density can exceed `1.0`; it is a raw ratio, not a score.
 
-`style_subscores(text)` converts the measurements into AI-oriented contributions:
+`style_subscores(text)` converts the measurements into AI-oriented contributions.
+For the current MATTR settings, the calculation is:
 
 ```python
 spread_ai = clamp01((0.60 - spread) / (0.60 - 0.25))
 punct_ai = clamp01((density - 0.06) / (0.14 - 0.06))
-ttr_ai = clamp01((0.80 - ttr) / (0.80 - 0.62))
+mattr = moving_average_ttr(text, 50)
+mattr_ai = clamp01((0.86 - mattr) / (0.86 - 0.72))
 
-style_score = 0.50 * spread_ai + 0.20 * punct_ai + 0.30 * ttr_ai
+style_score = 0.50 * spread_ai + 0.20 * punct_ai + 0.30 * mattr_ai
 ```
+
+I call this contribution `mattr_ai` here; the code retains `ttr_ai` and
+`STYLE_WEIGHT_TTR`.
 
 `clamp01` limits each contribution to `[0.0, 1.0]`. The style score keeps
 full precision. All sample limits, anchors, weights, and label thresholds are
@@ -137,7 +197,9 @@ named constants at the top of `stylometry.py`.
 | Minimum sample | `MIN_STYLE_SENTENCES`, `MIN_STYLE_WORDS` | `3`, `40` |
 | Spread anchors | `SPREAD_AI_ANCHOR`, `SPREAD_HUMAN_ANCHOR` | `0.25`, `0.60` |
 | Structural punctuation anchors | `PUNCTUATION_HUMAN_ANCHOR`, `PUNCTUATION_AI_ANCHOR` | `0.06`, `0.14` marks per word |
-| TTR anchors | `TTR_AI_ANCHOR`, `TTR_HUMAN_ANCHOR` | `0.62`, `0.80` |
+| MATTR window | `TTR_WINDOW` | `50` word tokens |
+| Active MATTR anchors | `MATTR_AI_ANCHOR`, `MATTR_HUMAN_ANCHOR` | `0.72`, `0.86` |
+| Whole-text TTR anchors when `TTR_WINDOW = 0` | `TTR_AI_ANCHOR`, `TTR_HUMAN_ANCHOR` | `0.62`, `0.80` |
 | Weights | `STYLE_WEIGHT_SPREAD`, `STYLE_WEIGHT_PUNCTUATION`, `STYLE_WEIGHT_TTR` | `0.50`, `0.20`, `0.30` |
 | Style decision thresholds | `STYLE_AI_THRESHOLD`, `STYLE_UNCERTAIN_THRESHOLD` | `0.65`, `0.40` |
 
@@ -161,26 +223,21 @@ the raw measurements, normalized contributions, combined style score, and label.
 The API continues to pass the numeric style signal into its separate
 model/style combination; these thresholds do not change that combining rule.
 
-This implementation replaces the earlier short/long branches with the supplied
-sample algorithm. It uses the whole input and has no upper word-count cutoff.
-The TTR anchors were proposed for prose under 200 words, so scores on longer
-inputs need separate evaluation. All anchors are hypotheses to test, not
-established authorship boundaries or calibrated probabilities.
+I slide the window across the whole text, without a word-count cutoff. My
+anchors need evaluation on labeled samples; they are not authorship boundaries.
 
 **Why that might differ between human and AI writing:**
 
-The style rule treats uniform sentence lengths, frequent structural
-punctuation, and repeated vocabulary as AI-like patterns. These are hypotheses
-to evaluate on samples, not reliable signatures of authorship by themselves.
+I treat uniform sentence lengths, frequent structural punctuation, and repeated
+vocabulary as possible AI-like patterns. I need samples to test those assumptions.
 
 **What it can't see:**
 
-It cannot understand meaning or identify who wrote the text. Paraphrasing,
-changing punctuation, or splitting sentences can change the score without
-changing authorship. TTR depends on input length. The simple sentence splitter
-can misread abbreviations, and the ASCII word pattern does not reliably handle
-text containing other scripts or accented letters. Those limitations can
-distort the measurements in either direction.
+My style checks cannot identify authorship or understand meaning. Editing
+punctuation, sentences, or vocabulary can change the score. MATTR still depends
+on window size and topic; short inputs retain whole-text TTR's length sensitivity.
+My sentence splitter can misread abbreviations, and my word pattern misses
+accented letters and other scripts.
 
 ### The combining rule
 
@@ -189,20 +246,14 @@ distort the measurements in either direction.
 
 **The rule:**
 
-I use a weighted average: the model score contributes 70% and the style score
-contributes 30%. Both inputs range from 0 to 1, with higher values indicating
-more AI-like text. The weights are nonnegative and add up to 1, so the combined
-score stays between the two input scores and within the same 0–1 range.
-
-When the signals disagree, the model score has more influence. There is no
-separate disagreement override: the weighted result can receive a human,
-unsure, or AI label, depending on the thresholds in `config.py`. Giving the
-model more weight also means its mistakes can outweigh the style signal.
+I combine 70% model score and 30% style score. The model score includes
+Binoculars only when the conditions above are met. Both inputs are in `[0, 1]`,
+so their weighted average stays in that range. I give the model more influence
+when they disagree, which also gives its mistakes more influence.
 
 **Trace of an unsure result — hypothetical scenario:**
 
-The sample below illustrates the flow using imaginary scores. The assessment
-sentence matches the implemented label text; this scenario is not a test run.
+I use imaginary scores below to illustrate the flow; this is not a test run.
 
 1. **The writer enters their text.** A writer submits the following passage as their own original work:
 
@@ -213,14 +264,16 @@ sentence matches the implemented label text; this scenario is not a test run.
    parses the JSON and checks the input. This passage is non-empty and meets
    the style signal's minimum of three sentences and 40 words.
 
-3. **The model signal scores the text.** The route passes the passage to `detector.model_signal(text)`. For this hypothetical calculation, assume a model score of `0.7`.
+3. **Model score.** I assume `detector.model_signal(text)` returns `0.7`.
+   This passage is under 100 words, so I use perplexity alone.
 
-4. **The style signal scores the text.** The route passes the same passage to `stylometry.style_signal(text)`. Assume a style score of `0.30`; this is an illustrative value, not a measured result for the passage.
+4. **Style score.** I assume `stylometry.style_signal(text)` returns `0.30`;
+   this is an illustrative value, not a measurement of the passage.
 
 5. **The service combines the scores and chooses a label.**
    `scoring.combine_signals(0.7, 0.30)` calculates `(0.7 * 0.7) + (0.3 * 0.30) = 0.58`.
    The route passes the combined score to `scoring.score_to_label()`, which
-   returns `("unsure", 0.58)` because `0.45 < 0.58 < 0.60`.
+   returns `("unsure", 0.58)` because `0.40 < 0.58 < 0.60`.
 
 6. **The writer sees the assessment.** The service generates a
    `content_id`, logs the decision and scores, and returns JSON containing the
@@ -242,29 +295,30 @@ sentence matches the implemented label text; this scenario is not a test run.
 - `WEIGHT_MODEL_SIGNAL = 0.7`
 - `WEIGHT_STYLE_SIGNAL = 0.3`
 - The weights add up to `1.0`.
-- `HUMAN_THRESHOLD = 0.45`
+- `HUMAN_THRESHOLD = 0.40`
 - `AI_THRESHOLD = 0.60`
 
 ```text
 combined_score = (0.7 * model_score) + (0.3 * style_score)
 ```
 
-The weights and final label thresholds are defined in `config.py`.
-`scoring.score_to_label` assigns human for scores at or below `0.45`, unsure
-for scores above `0.45` and below `0.60`, and AI for scores at or above `0.60`.
-These final label thresholds are separate from the style-only thresholds in
-`stylometry.py`. The combined score is a heuristic, not a calibrated probability
-of AI authorship.
+I define the final thresholds in `config.py`: human at `score <= 0.40`, unsure
+at `0.40 < score < 0.60`, and AI at `score >= 0.60`. These differ from the
+style-only thresholds. I treat the combined score as a heuristic, not a
+calibrated probability.
 
 **Where it lives:** `scoring.py::combine_signals`
 
 <!-- ⚠️ The grader checks your code against that line. If your rule lives
      somewhere else, say where. -->
-
+It lives in `scoring.py::combine_signals`
 **A case where my two signals split, and what my rule does with it:**
 
-The actual run of `Milestone4_test_sample/borderline_ai_milestone4.json`
-recorded a model score of `0.5195` and a style score of `0.6808494097161918`.
+I go by total score based on the scoring mechanism. Even if the results slitthe way the scoring is doe the model_score has higher overall weitage compared to stylometry. The model score is also a weighted score 50:50 of the detecotr model and the binocular 2nd model. so the split in decision is ignored instead we take the decision based on the overall computed score.
+
+I recorded this baseline example before Binoculars, MATTR, and the threshold
+change. `Milestone4_test_sample/borderline_ai_milestone4.json` returned a model
+score of `0.5195` and a style score of `0.6808494097161918`.
 The model score lies in the final rule's unsure range, while the style-only
 classifier treats the style score as likely AI. This is a measured disagreement
 in the strength of the signals.
@@ -277,7 +331,7 @@ label = unsure
 
 The model contributes `0.36365`, and style contributes about `0.204255`.
 The combined score stays below the AI threshold of `0.60` and above the human
-threshold of `0.45`, so the final label is unsure. The audit entry is
+threshold then set to `0.45`, so the final label is unsure. The audit entry is
 `c_df4de07a8019`; its full record appears below.
 
 Disagreement does not always produce unsure. For comparison, hypothetical
@@ -287,7 +341,10 @@ values illustrate the model's larger weight; they are not additional test runs.
 
 ### Milestone 4 — Input tests and audit evidence
 
-The four entries from the latest batch come from [logs/audit.jsonl](logs/audit.jsonl), lines
+I keep these baseline results unchanged: they used perplexity alone, whole-text
+TTR, and a `0.45` human cutoff, before my stretch changes.
+
+My four Milestone 4 entries come from [logs/audit.jsonl](logs/audit.jsonl), lines
 164–167, recorded on **November 10, 2026 at 12:58:48 a.m. Pacific Standard
 Time** (`2026-11-10T08:58:48+00:00` in the log). The submissions were made with:
 
@@ -310,11 +367,11 @@ The separate clearly-human test was already recorded earlier, on **November
 10, 2026 at 12:22:26 a.m. Pacific Standard Time**, in audit line 163. It used
 `samples/clearly-human.json`. Recalculating both signals for that saved file
 matched the earlier entry's creator ID and scores. The table includes that
-earlier test alongside the four files from the latest batch.
+earlier test alongside the four files from the Milestone 4 batch.
 
 **Recorded results:** Scores in the table are rounded to six decimal places;
-the exact logged values are preserved in the JSONL excerpt below. Final labels
-use `0.7 * model_score + 0.3 * style_score`, with human at `<= 0.45`, AI at
+the exact logged values are preserved in the JSONL excerpt below. Baseline labels
+used `0.7 * model_score + 0.3 * style_score`, with human at `<= 0.45`, AI at
 `>= 0.60`, and unsure between those boundaries.
 
 | Test input | File | Model score | Style score | Combined score | Recorded label |
@@ -338,7 +395,7 @@ and different audit entries.
 1. **Clearly AI:** Both signals support the recorded AI label. The model score
    is `0.9195`, and the style score is about `0.655224`; their weighted result
    is about `0.840217`. The style score is lower than the model score partly
-   because structural punctuation contributes zero under the current rule.
+   because structural punctuation contributes zero under the baseline rule.
 2. **Formal human:** The final human label matches the supplied test
    category. The model score is `0.3081`, while the style score is higher at
    about `0.455105`, within the style-only uncertain range. Its TTR is `0.68`,
@@ -397,14 +454,16 @@ in this run and is reproduced unchanged above.
 | Endpoint | Request fields | Response fields |
 |---|---|---|
 | `POST /submit` | `text`, `creator_id` | `content_id`, `guess`, `label`, `label_text`, `confidence`, `combined_score`, `model_score`, `style_score` |
-| `POST /appeal` | `content_id`, `reasoning` | `content_id`, `appeal_id`, `status`, `label`, `label_text`, `message`, `votes`, `evaluations`, `weights` |
+| `POST /appeal` — automatic | `content_id`, `reasoning`; `review_type="automatic"` or omitted | HTTP `200`: `content_id`, `appeal_id`, `review_type`, `status`, `label`, `label_text`, `message`, `votes`, `evaluations`, `weights` |
+| `POST /appeal` — human verification | `content_id`, `reasoning`, `review_type="human_verification"`, `additional_text` | HTTP `202`: `content_id`, `verification_request_id`, `review_type`, `status`, `message` |
+| `POST /verification/review` | `content_id`, `status`; optional `reviewer`, `review_notes` | `content_id`, `verification_request_id`, `status`, `credential` |
+| `GET /verification/review/<id>` | Content ID in the URL; prior human-verification request | `content_id`, `submission`, `decision`, `verification_request`, `review` (null while pending) |
+| `GET /content/<id>` | Content ID in the URL | `content_id`, `status`, `credential`; also `verification_request_id` and `verification_status` after a human-verification request. Unknown IDs return HTTP `404`. |
 | `GET /log` | Optional query parameters: `content_id`, `limit` | `count`, `entries`; filtering by `content_id` shows the original decision and subsequent appeal events. |
 
-For submissions, `guess` and `label` contain the same short classification.
-`label_text` contains the full sentence, and `confidence` equals
-`combined_score`. The numeric confidence is an AI-oriented score, not certainty
-in whichever label was selected. `creator_id` is optional and defaults to
-`"unknown"` in the decision record when omitted.
+I return the same classification in `guess` and `label`, with its sentence in
+`label_text`. I set `confidence = combined_score`; it measures AI-likeness,
+not certainty. I default an omitted `creator_id` to `"unknown"`.
 
 ## Label Variants
 
@@ -413,21 +472,14 @@ in whichever label was selected. `creator_id` is optional and defaults to
 
      Write them for someone who has never heard the word "threshold". -->
 
-`scoring.score_to_label(score)` returns `(label, confidence)`, where `label` is
-`"human"`, `"unsure"`, or `"ai"`, and `confidence` is the combined score as a
-float. Higher confidence values mean more AI-like, not greater certainty in
-the selected label. For example, `score_to_label(0.20)` returns `("human", 0.20)`.
-
-The exact reader-facing messages are defined in `scoring.LABEL_TEXT`.
-`app.py::submit` calls `scoring.score_to_label`, selects the corresponding
-sentence, and returns it as `label_text` alongside the short `label` and numeric
-`confidence`. The same sentence is recorded in the audit log. The ranges below
-follow the thresholds in `config.py` and the conditions in `score_to_label`.
+I use `scoring.score_to_label` for the label and `scoring.LABEL_TEXT` for the
+message. I return and log both. These ranges match `config.py`; for example,
+`score_to_label(0.20)` returns `("human", 0.20)`.
 
 | API label | Score range | Exact `label_text` returned to the reader |
 |---|---|---|
-| `human` | `0.00 ≤ score ≤ 0.45` | Our checks suggest this text was written by a person. This assessment can be wrong. |
-| `unsure` | `0.45 < score < 0.60` | We do not have enough evidence to determine how this text was written. The writer can request a review. |
+| `human` | `0.00 ≤ score ≤ 0.40` | `Our checks  suggest this text was written by a person. This assessment can be wrong.` |
+| `unsure` | `0.40 < score < 0.60` | We do not have enough evidence to determine how this text was written. The writer can request a review. |
 | `ai` | `0.60 ≤ score ≤ 1.00` | Our checks suggest this text may have been generated by AI. This assessment can be wrong, and the writer can request a review. |
 
 **Why I worded the "unsure" one this way:**
@@ -435,11 +487,14 @@ follow the thresholds in `config.py` and the conditions in `score_to_label`.
      sounding like an accusation, because the person reading it may well have
      written every word themselves. -->
 
-The unsure message describes a limit of the automated checks without accusing
-the writer. It acknowledges that the checks cannot determine authorship and
-points to human review instead of presenting a numeric score as proof.
+I acknowledge uncertainty and offer an appeal without accusing the writer.
+I offer either an automatic recheck or human verification based on supporting
+text. Certification requires a reviewer decision.
 
 ### Milestone 5 — Verified label responses
+
+I preserve these baseline responses from before Binoculars, MATTR, and the
+human-cutoff change from `0.45` to `0.40`.
 
 On **November 10, 2026 at 1:20:16 a.m. Pacific Standard Time**, the three saved
 texts below were submitted to the running `POST /submit` service with
@@ -448,9 +503,8 @@ HTTP `200`. The model and style signals ran on the actual text without mocks.
 The responses below were captured from those requests and matched their audit
 entries in [logs/audit.jsonl](logs/audit.jsonl), lines 168–170.
 
-These captured responses predate the addition of `guess` as an alias for
-`label`. They are preserved exactly; the later submission in **Sample Run**
-shows the current response fields.
+I captured these before adding `guess` as an alias for `label`. My API table
+above lists the current response fields.
 
 | Submitted text | Returned label | Combined score (rounded) | Audit/content ID |
 | --- | --- | ---: | --- |
@@ -500,27 +554,60 @@ shows the current response fields.
 }
 ```
 
-All three labels are reachable. Boundary checks also verified that `0.45`
-returns human, `0.60` returns AI, and scores strictly between them return unsure.
-`scoring.label_ranges()` displays the inclusive and exclusive boundaries
-explicitly. The automated checks in `test_scoring_api.py` cover the boundaries
-and verify that each response and audit record receive the matching label text.
+My baseline checks reached all three labels and verified the old `0.45` human
+cutoff and `0.60` AI cutoff. I now use `0.40` for human, as shown above.
+`test_scoring_api.py` checks configured boundaries and matching response/log labels.
 
 ---
 
 ## Sample Run
 
-### Appeal behavior from criteria.md
+### Appeals: automatic and human verification
 
-`app.py::appeal` implements criterion 4 in [criteria.md](criteria.md). It accepts
-an existing `content_id` and non-empty `reasoning`, records the appeal as
-`under_review`, and reassesses three versions of the saved submission:
+I accept an existing `content_id` and non-empty `reasoning` at `POST /appeal`.
+I select the process through `review_type`; unsupported values return HTTP `400`:
+
+**Automatic appeal** — I use this by default when `review_type` is omitted:
+
+```json
+{
+  "content_id": "c_example",
+  "review_type": "automatic",
+  "reasoning": "Please recheck the original assessment."
+}
+```
+
+**Human-verification appeal** — I also require non-empty `additional_text`:
+
+```json
+{
+  "content_id": "c_example",
+  "review_type": "human_verification",
+  "reasoning": "Please review my writing process.",
+  "additional_text": "My earlier draft and an explanation of my revisions..."
+}
+```
+
+I record the supporting text and UTC request time in `logs/audit.jsonl`, return
+HTTP `202` with a `verification_request_id`, and set `under_review`. Human
+verification uses a reviewer's decision without rerunning model or style scoring.
+I use the original submission's writer ID. I inspect the saved text and evidence through
+`GET /verification/review/<id>`, then submit `certified` or `not_certified` to
+`POST /verification/review`. I check the current status at `GET /content/<id>`.
+I show that flow under [A verified-human path](#a-verified-human-path).
+
+For an automatic appeal, I return HTTP `200` after rechecking three versions:
 
 1. The original text.
 2. The text with its first sentence removed.
 3. The text with its last sentence removed.
 
-`scoring.combine_appeal_signals` uses the appeal constants in `config.py`:
+For both review paths, I retrieve the original text by `content_id` from
+`logs/submissions.jsonl`. I support older items through text already saved in
+their historical audit entries. I append appeal outcomes to `logs/audit.jsonl`.
+
+For automatic appeals, I use perplexity alone as the model input, plus the current MATTR
+style signal. I combine them through `scoring.combine_appeal_signals`:
 
 ```text
 APPEAL_WEIGHT_MODEL_SIGNAL = 0.6
@@ -528,17 +615,14 @@ APPEAL_WEIGHT_STYLE_SIGNAL = 0.4
 appeal_score = (0.6 * model_score) + (0.4 * style_score)
 ```
 
-Each version uses the current label boundaries: human at `<= 0.45`, AI at
-`>= 0.60`, and unsure between them. Two or more votes select the majority
-label. A three-way tie returns unsure. The original submission still uses
-70% model and 30% style; an appeal does not overwrite that earlier decision.
+I label each version human at `<= 0.40`, AI at `>= 0.60`, and unsure between.
+I take the majority vote, using unsure for a three-way tie. I retain the
+original decision, which used the submission's 70/30 weights.
 
-The original text is retained in new decision records so rechecks use what was
-actually submitted. The service records the appeal before inference, then
-appends an `appeal_reassessment` event with all three sets of scores and the
-vote counts. Both events remain `under_review`, including when the automated
-majority is AI or human. The latest event for a content ID shows its current
-review status; the original `decided` entry remains unchanged.
+I save the appeal before inference, then append an `appeal_reassessment` with
+scores and votes. I keep automatic appeals `under_review` for every result,
+including `human`; an automatic recheck does not issue a certificate. The saved
+submission and original `decided` audit record retain their initial values.
 
 An unsure majority returns this message from the appeal criterion:
 
@@ -548,16 +632,19 @@ An AI majority also explains that the assessment can be wrong and asks the
 writer to provide earlier versions for human review, as shown in the actual
 response below. Invalid JSON or empty fields return HTTP `400`; a nonexistent
 submission ID returns HTTP `404`. A variant too short to score votes unsure,
-with null scores and an `insufficient_data` status. Historical decisions that
-have no saved text are still accepted for review: their evaluations report
-`original_text_unavailable` and return unsure without invented scores.
+with unavailable scores left null and an `insufficient_data` status. If the
+original text is missing from both files, I still record the automatic appeal;
+its evaluations report `original_text_unavailable` and vote unsure. A model-loading
+failure similarly votes unsure with `model_unavailable`.
 
 ### Actual submission, appeal, and audit check
 
-This live run completed on **November 10, 2026 at 1:31:11 a.m. Pacific Standard
-Time** (`2026-11-10T09:31:11+00:00`). It used the saved AI sample, real GPT-2 and
-stylometry scores, and the real audit log. The curl commands below reproduce
-the requests; the JSON bodies were captured from the running service.
+I captured this baseline run on **November 10, 2026 at 1:31:11 a.m. PST**
+(`2026-11-10T09:31:11+00:00`), before Binoculars, MATTR, and the threshold change.
+I used real model/style scores and preserved the responses below. Rerunning
+these requests with the current code can produce different scores.
+These historical responses predate `review_type` and the extra signal fields.
+The historical audit response includes `text`; new submissions store it separately.
 
 **Submit the text first:**
 
@@ -729,10 +816,9 @@ event has `status: "under_review"`. Its three evaluations match the appeal
 response, and the AI majority is three votes out of three. Each evaluation
 records its model score, style score, combined score, and label.
 
-The automated tests in `test_appeals.py` also cover human and unsure majorities,
-a three-way tie, exact sentence removal, 60/40 weighting, validation errors,
-text retention, short variants, model unavailability, and preservation of the
-original decision. The complete test run passed 43 tests.
+My baseline test run passed 43 tests before the stretch changes.
+`test_appeals.py` covers votes, sentence removal, 60/40 weighting, validation,
+text retention, and unavailable or insufficient inputs.
 
 <details>
 <summary>Earlier Milestone 3 observations</summary>
@@ -844,14 +930,17 @@ entry was also verified in `logs/audit.jsonl`. This confirms that the first
 signal's result is now returned to the caller and recorded for that submission.
 
 These older Milestone 3 records captured placeholder confidence and labels,
-with `style_score: null` in the response and `0.5` in the log. The current
-submission and appeal workflow is demonstrated above with both real signals.
+with `style_score: null` in the response and `0.5` in the log. I show the later
+baseline submission and appeal above with both real signals.
 
 </details>
 
 ---
 
 ## How I Used AI
+
+I keep these earlier AI exchanges as history; my current settings are documented
+in **Signals and Scoring**.
 
 **Moment 1 — Implementing and inspecting the style signal**
 
@@ -867,9 +956,11 @@ What should be the weights or proportion that we a should add the three componen
 
 Each raw metric has a different range and, in some cases, the wrong direction (low spread means AI, not high). Use a clamped linear map between a “human-typical” value and an “AI-typical” value:
 
+```python
 def to_ai_score(x, human_val, ai_val):
     s = (x - human_val) / (ai_val - human_val)
     return max(0.0, min(1.0, s))
+```
 
 Reasonable starting anchors (tune these on your own labeled samples — they are calibration points, not constants):
 
@@ -909,43 +1000,149 @@ TTR: in under 200 words most words appear once, so human TTR sits around 0.80–
 Sanity check before you ship it: paste in two or three paragraphs you know are human (your own writing, a news paragraph) and two or three you generate with an LLM on a plain prompt. If the humans don’t land under ~0.40 and the AI ones over ~0.65, nudge the single anchor that’s misbehaving by ±0.05 — don’t touch the weights. That’s a five-minute calibration that needs no training set.
 - *What I changed:* I applied these rules in my stylometry.py and scoring.py
 
+## Stretch Features
+
+**A third signal**
+
+I added Binoculars score alongside perplexity and style. For inputs of at least
+100 words, when Binoculars is available, I use **35% perplexity(0.5 weight of 70%), 35% Binoculars(0.5 weight of 70%), and 30% style**. I average the two model scores first, then apply the 70/30
+model/style rule in `scoring.py::combine_signals`. For shorter inputs or
+unavailable Binoculars, I use **70% perplexity and 30% style**. . I do this as the paper on binoculars  mentioned it perfromed poorly for short test (i have used the short text threshold as 100 words), so any text above 100 words will use all three signals below that will use only two signals which is performing better for shrter texts.
+
+
+**A GET /content/<id> endpoint**
+
+I return the item's latest status and credential through `app.py::get_content`.
+The credential is `null` until certification; unknown IDs return HTTP `404`.
+After a human-verification request, I also return `verification_request_id` and
+`verification_status` (`pending`, `certified`, or `not_certified`). A later automatic
+appeal sets `status` to `under_review` while retaining any certificate and its
+verification status.
+For this earlier automatic appeal:
+
+```bash
+curl -sS http://127.0.0.1:5000/content/c_e00cdce4c319
+```
+
+Response (`200 OK`):
+
+```json
+{
+  "content_id": "c_e00cdce4c319",
+  "status": "under_review",
+  "credential": null
+}
+```
+
+<a id="a-verified-human-path"></a>
+
+**A verified-human path**
+
+I ask for an earlier draft and an explanation through a `human_verification`
+appeal. I then load the original submission, decision, evidence, and review outcome:
+
+```bash
+curl -sS http://127.0.0.1:5000/verification/review/c_verification_demo
+```
+
+I read `submission.text` from the submission file and
+`verification_request.additional_text` from the audit log. The `review` field
+is `null` while pending and contains the saved decision after review. I return
+the latest human-verification request. For new submissions, `submission.status`
+and `decision.status` retain `decided`; I use `GET /content/<id>` for current status.
+If the original text is unavailable, `submission` is `null`. Unknown IDs return
+`404`; a known item with no human-verification request returns `409`.
+After reading the evidence, I send the reviewer decision:
+
+```bash
+curl -sS -X POST http://127.0.0.1:5000/verification/review \
+  -H "Content-Type: application/json" \
+  -d '{"content_id":"c_verification_demo","status":"certified"}'
+```
+
+I use `"status":"not_certified"` to decline; successful decisions return HTTP
+`200`. I can include `reviewer` and `review_notes`; they default to `"unspecified"`
+and `""`. I apply the decision to the latest human-verification request and reload
+the submission before saving a new decision. Missing original text blocks certification with `409`,
+but I can still decline. A creator-ID mismatch also returns `409`.
+Duplicate pending requests, new requests for certified items, and conflicting
+decisions return `409`. Repeating the same decision for the same request returns
+the saved result, including its existing reviewer and notes.
+
+On certification, I generate a short UUID-based `Certificate_id`, check its
+uniqueness, and record `verified_dt_time` explicitly in UTC. I append the approved
+record to `logs/verified_human_certification_log.jsonl` and the review outcome to
+`logs/audit.jsonl`. A declined request has no credential; the writer can submit
+new evidence in another appeal. I preserve the original submission and scores;
+the certificate applies only to the reviewed item.
+
+I check the result by content ID:
+
+```bash
+curl -sS http://127.0.0.1:5000/content/c_verification_demo
+```
+
+I captured this HTTP `200` response using **isolated test data and simulated
+reviewer approval**. The request, pending response, and both review outcomes are in
+[the API demo record](results/verification_api_demo.json). I replace the demo ID
+with my own submission ID when using the service.
+
+```json
+{
+  "content_id": "c_verification_demo",
+  "credential": {
+    "Certificate_id": "vh_f5aabe004ec64f00",
+    "method": "draft_review",
+    "type": "verified_human",
+    "verified_dt_time": "2026-11-11 08:57:53 UTC"
+  },
+  "status": "certified",
+  "verification_request_id": "vr_bcb353a64c9b4d75",
+  "verification_status": "certified"
+}
+```
+
+Before review, I return `under_review` with `credential: null`. After a decline,
+I return `not_certified` with `credential: null`. I treat the certificate as a
+record of draft review, separate from the automated authorship label.
+
+---
+
+
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
 ---
 
 ## Rate Limiting
 
-**My limits:** 5 submissions per minute and 50 per day, configured in `config.py`.
-Both limits apply to `POST /submit` when the service starts with rate limiting enabled:
+I limit `POST /submit` to **9 requests per minute and 400 per day** in
+`config.py`. I enable limiting by default; `AI201_RATE_LIMITS=0` disables it.
 
 ```bash
 AI201_RATE_LIMITS=1 .venv/bin/python app.py
 ```
 
-Rate limiting is disabled by default. Requests that exceed either limit return
-HTTP `429` with a JSON error, the exceeded limit, and a `Retry-After` header.
-Each rejection is recorded in the audit log before any model scoring runs.
-Other routes do not consume the submission allowance. In-memory counters reset
-when the service restarts and are not shared between server processes.
+I return HTTP `429` with a JSON error and `Retry-After` when either limit is
+exceeded, and log the rejection before scoring. Other routes do not use this
+allowance. My in-memory counters reset on restart and are separate per process.
 
 **Why those numbers and not others:**
-Five submissions per minute allow a few quick revisions, while 50 per day
-limits sustained automated submissions from the same caller. These are initial
-limits to evaluate against normal use and the attack tests.
+I allow room for revisions while limiting bursts and daily automated use.
+I will evaluate these settings against normal use and the attack tests.
 
 <!-- Think about two people: a real writer submitting their own work a few
      times an hour, and a script sending a thousand variations to map your
      thresholds. Your numbers have to be liveable for the first and hostile to
      the second. -->
 
-**What a caller counts as:** A nonblank string `creator_id`, falling back to the
-request's IP address when that ID is absent or invalid. Creator IDs are supplied
-by callers, so changing IDs creates separate allowances; callers without IDs
-who share an IP share an allowance. Invalid submissions also count toward the limits.
+**What a caller counts as:** I use a nonblank `creator_id`, falling back to the
+IP address. Changing IDs bypasses a shared allowance; callers sharing an IP
+without IDs share one allowance. I count invalid submissions too.
 
-**The run of status codes when I pushed past it:**
+**Rate-limit evidence:** I still need to record this run. The 10th request from
+the same caller within one minute exceeds the minute limit and returns HTTP `429`.
 
-<!-- python run_attacks.py --flood 15 -->
+<!-- python run_attacks.py --flood 25 -->
 
 ```
 

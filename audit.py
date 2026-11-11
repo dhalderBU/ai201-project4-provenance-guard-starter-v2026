@@ -106,6 +106,18 @@ def log_appeal_result(content_id: str, creator_id: str, appeal_id: str, **result
     })
 
 
+def log_verification(content_id: str, creator_id: str, event: str, status: str, **extra) -> dict:
+    """Append a manual-verification request or review without altering its submission."""
+    return _append({
+        "timestamp": _now(),
+        "content_id": content_id,
+        "creator_id": creator_id,
+        "event": event,
+        "status": status,
+        **extra,
+    })
+
+
 def log_rejection(creator_id: str, reason: str, **extra) -> dict:
     """
     Record a request that never became a decision — a rate-limit rejection or

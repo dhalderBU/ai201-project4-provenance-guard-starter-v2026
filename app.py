@@ -20,6 +20,9 @@ Routes:
     POST /ping        the worked example. Already works. Don't edit it
     POST /submit      ← YOU BUILD THIS (Milestone 3, 4, 5)
     POST /appeal      ← YOU BUILD THIS (Milestone 5)
+    POST /verification/review  reviewer decision: certified or not_certified
+    GET  /verification/review/<id>  original submission and human-review evidence
+    GET  /content/<id> the item's latest recorded status
     GET  /log         the audit log. Already works
     GET  /health      is the service up, and is the model loaded
 """
@@ -31,8 +34,15 @@ from flask import Flask, jsonify, request
 
 import audit
 import config
+import submissions
+import verification
 
 app = Flask(__name__)
+
+
+@app.errorhandler(verification.VerificationError)
+def verification_error(exc):
+    return jsonify({"error": exc.code, "message": str(exc)}), exc.status_code
 
 
 # ── Rate limiting — UNIT 8 ────────────────────────────────────────────────────
@@ -132,10 +142,27 @@ def health():
     import detector
 
     loaded = detector._model is not None
+
+    # ***deb..start stretch feature*** binocular***
+    # Report the second (performer) model the Binoculars signal needs.
+    # PERFORMER is None when running in single-model mode, which needs no extra download.
+    import binoculars_signal
+
+    binoculars_performer = binoculars_signal.PERFORMER
+    binoculars_loaded = (
+        loaded if binoculars_performer is None          # single-model mode reuses the detector
+        else binoculars_signal._performer is not None
+    )
+    # ***deb ..end of stretch feature*** binocular***
+
     return jsonify({
         "ok": True,
         "detector_model": config.DETECTOR_MODEL,
         "detector_loaded": loaded,
+        # ***deb..start stretch feature*** binocular***
+        "binoculars_performer": binoculars_performer,
+        "binoculars_loaded": binoculars_loaded,
+        # ***deb ..end of stretch feature*** binocular***
         "rate_limiting": config.RATE_LIMITING_ENABLED,
         "log_entries": len(audit.read_entries()),
     })
@@ -217,9 +244,46 @@ def submit():
 
     # Below lines commented so as to setup styling with default values uncomment once the logic is implemented
     try:
-        model_score = detector.model_signal(text)
+        perplexity_score = detector.model_signal(text)
     except detector.TextTooShortError as exc:
         return jsonify({"error": "bad_request", "message": str(exc)}), 400
+
+    # ***deb..start stretch feature*** binocular***
+    # Second model-side signal: Binoculars (Hans et al., 2024). It divides the
+    # detector's perplexity by a cross-perplexity so that text which is
+    # predictable only because its TOPIC is predictable stops scoring as AI.
+    #
+    # It fills the same 0.5 "model" slot as the perplexity signal rather than
+    # taking weight away from the style signals: the two are averaged into one
+    # model_score, which is what scoring.combine_signals() and the logs see.
+    #
+    # If the second model can't load (no download yet, no disk), the route
+    # degrades to the perplexity signal alone and says so in the response,
+    # instead of failing every submission because of a stretch feature.
+    import binoculars_signal
+
+    # Binoculars is known to lose accuracy on short inputs (Hans et al., 2024),
+    # and on this project's short samples it ordered a plain-human paragraph as
+    # more AI-like than an actual AI paragraph. Below BINOCULARS_MIN_WORDS the
+    # model term is the perplexity signal alone; at or above it, the two are
+    # averaged. The Binoculars score is still computed and returned either way,
+    # so the eval reports can show what it would have said.
+    min_words = getattr(config, "BINOCULARS_MIN_WORDS", 100)
+    word_count = len(text.split())
+
+    try:
+        binoculars_score = binoculars_signal.binoculars_signal(text)
+        binoculars_available = True
+    except detector.DetectorUnavailable:
+        binoculars_score = None
+        binoculars_available = False
+
+    binoculars_used = binoculars_available and word_count >= min_words
+    if binoculars_used:
+        model_score = round(0.5 * perplexity_score + 0.5 * binoculars_score, 4)
+    else:
+        model_score = perplexity_score
+    # ***deb ..end of stretch feature*** binocular***
 
 
     # Below lines commented so as to setup styling with default values
@@ -239,13 +303,10 @@ def submit():
     label, confidence = scoring.score_to_label(combined_score)
     label_text = scoring.LABEL_TEXT[label]
 
-    # Step 4 - log the decision. The content_id is what /appeal needs later.
+    # Use the same initial decision values in both files, linked by content_id.
     content_id = f"c_{uuid.uuid4().hex[:12]}"
-    audit.log_decision(
-        content_id=content_id,
-        creator_id=creator_id,
+    decision_fields = dict(
         guess=label,
-        text=text,
         model_score=model_score,
         style_score=style_score,
         combined_score=combined_score,
@@ -253,7 +314,18 @@ def submit():
         label_text=label_text,
         confidence=confidence,
         status="decided",
+        perplexity_score=perplexity_score,
+        binoculars_score=binoculars_score,
+        binoculars_used=binoculars_used,
+        word_count=word_count,
     )
+    submissions.save_submission(content_id, creator_id, text, **decision_fields)
+    audit.log_decision(content_id=content_id, creator_id=creator_id, **decision_fields)
+
+    # ***deb..start stretch feature*** binocular***
+    # The log records the model score used, both component scores, whether
+    # Binoculars contributed, and the input word count through **extra.
+    # ***deb ..end of stretch feature*** binocular***
 
     # Step 2 - JSON goes in: pull text and creator_id out of the body
     # Validation now runs above, before the detector is called
@@ -268,13 +340,22 @@ def submit():
         "confidence": confidence,
         "model_score": model_score,
         "style_score": style_score,
+        # ***deb..start stretch feature*** binocular***
+        # model_score above is what the decision used (average of the two when
+        # Binoculars ran). These are its components, for the eval reports and
+        # for appeals.
+        #------activate the below for
+        #"perplexity_score": perplexity_score,
+        #"binoculars_score": binoculars_score,
+        #"binoculars_used": binoculars_used,     # false below BINOCULARS_MIN_WORDS or if it couldn't load
+        #"word_count": word_count,
+        # ***deb ..end of stretch feature*** binocular***
     }), 200
 
-  
 
 @app.post("/appeal")
 def appeal():
-    """Record an appeal and run the three-variant recheck from criteria.md."""
+    """Run an automatic appeal or record evidence for a manual certification review."""
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({
@@ -290,6 +371,27 @@ def appeal():
         return jsonify({"error": "bad_request", "message": "Provide non-empty reasoning."}), 400
     content_id = content_id.strip()
     reasoning = reasoning.strip()
+    review_type = payload.get("review_type", "automatic")
+    if review_type not in ("automatic", "human_verification"):
+        return jsonify({
+            "error": "bad_request",
+            "message": "review_type must be automatic or human_verification.",
+        }), 400
+    if review_type == "human_verification":
+        additional_text = payload.get("additional_text")
+        if not isinstance(additional_text, str) or not additional_text.strip():
+            return jsonify({
+                "error": "bad_request",
+                "message": "Provide non-empty additional_text for human verification.",
+            }), 400
+        record = verification.request_review(content_id, reasoning, additional_text)
+        return jsonify({
+            "content_id": content_id,
+            "verification_request_id": record["verification_request_id"],
+            "review_type": review_type,
+            "status": "under_review",
+            "message": "Your human-verification request has been recorded.",
+        }), 202
 
     entries = audit.entries_for(content_id)
     decision = next((entry for entry in entries if entry.get("status") == "decided"), None)
@@ -300,17 +402,58 @@ def appeal():
     appeal_id = f"a_{uuid.uuid4().hex[:12]}"
     # Record acceptance before running inference, so even a failed recheck
     # leaves the writer's appeal and under_review status in the audit trail.
-    audit.log_appeal(content_id, creator_id, reasoning, appeal_id=appeal_id)
+    audit.log_appeal(content_id, creator_id, reasoning,
+                     appeal_id=appeal_id, review_type=review_type)
 
     import appeals
 
-    result = appeals.reassess(decision.get("text"))
-    audit.log_appeal_result(content_id, creator_id, appeal_id, **result)
+    submission = submissions.for_decision(decision)
+    original_text = submission["text"] if submission is not None else None
+    result = appeals.reassess(original_text)
+    audit.log_appeal_result(content_id, creator_id, appeal_id, review_type=review_type, **result)
     return jsonify({
         "content_id": content_id,
         "appeal_id": appeal_id,
+        "review_type": review_type,
         "status": "under_review",
         **result,
+    }), 200
+
+
+ # ***---deb..start stretch feature*** content id get call----***
+# Stretch feature: look up one item's current status without rescoring it.
+@app.get("/content/<content_id>")
+def get_content(content_id: str):
+    """Return the latest status and this item's approved credential, if any."""
+    return jsonify(verification.content_status(content_id)), 200
+
+
+@app.get("/verification/review/<content_id>")
+def get_verification_review(content_id: str):
+    """Load the saved submission, evidence, and outcome for a human reviewer."""
+    return jsonify(verification.review_details(content_id)), 200
+
+
+@app.post("/verification/review")
+def review_verification():
+    """Record a reviewer decision for one item's latest request without authentication."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "bad_request",
+                        "message": "Send a JSON object containing content_id and status."}), 400
+    content_id = payload.get("content_id")
+    if not isinstance(content_id, str) or not content_id.strip():
+        return jsonify({"error": "bad_request", "message": "Provide a non-empty content_id."}), 400
+    record = verification.review_content(
+        content_id.strip(), payload.get("status"),
+        payload.get("reviewer", "unspecified"),
+        payload.get("review_notes", ""),
+    )
+    return jsonify({
+        "content_id": record["content_id"],
+        "verification_request_id": record["verification_request_id"],
+        "status": record["status"],
+        "credential": record["credential"],
     }), 200
 
 
@@ -340,6 +483,10 @@ def get_log():
 def main():
     print(f"Provenance Guard on http://{config.HOST}:{config.PORT}")
     print(f"  detector model:  {config.DETECTOR_MODEL}")
+    # ***deb..start stretch feature*** binocular***
+    performer = getattr(config, "BINOCULARS_PERFORMER", "distilgpt2")
+    print(f"  binoculars:      {performer or 'single-model mode (no second download)'}")
+    # ***deb ..end of stretch feature*** binocular***
     print(f"  rate limiting:   {'ON' if config.RATE_LIMITING_ENABLED else 'off (AI201_RATE_LIMITS=0)'}")
     print(f"  audit log:       {config.AUDIT_LOG}")
     print()
