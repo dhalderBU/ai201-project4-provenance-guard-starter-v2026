@@ -138,18 +138,10 @@ else:
 `calibrate_combined.py`, using `MODEL_WEIGHT_PERPLEXITY = 0.7` and
 `MODEL_WEIGHT_BINOCULARS = 0.3` from `config.py`.
 
-When enabled, I still calculate and log Binoculars for shorter inputs, but set
+I still calculate and log Binoculars for shorter inputs, but set
 `binoculars_used` to `false`. I also use perplexity alone if Binoculars raises
 `detector.DetectorUnavailable`. I then combine 70% of the model score with 30% of the style score through
 `scoring.py::combine_signals`.
-
-To turn Binoculars off completely, restart with
-`AI201_BINOCULARS=0 AI201_DEVICE=mps .venv/bin/python app.py`.
-This skips Binoculars inference and GPT-2 Medium loading. Every input length
-uses perplexity alone as `model_score`, followed by the usual 70/30 model/style
-combination. `GET /health` reports `binoculars_enabled: false`; the logs record
-`binoculars_score: null` and `binoculars_used: false`. Setting the performer to
-`None` selects the single-model entropy calculation and is not a full off switch.
 
 **Why that might differ between human and AI writing:**
 
@@ -1373,7 +1365,7 @@ that produced it:
        [x] criteria.md has five numbered criteria, each naming a target
        [x] Each has a reason underneath
        [x] POST /submit returns content_id, guess, confidence, label,
-           model_score and style_score
+       [X]   model_score and style_score
        [x] Two signals that measure DIFFERENT things, each with a named blind spot
        [x] Three label variants, all reachable, written out in full
        [x] POST /appeal changes status and writes to the log
