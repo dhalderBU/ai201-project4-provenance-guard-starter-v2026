@@ -1,0 +1,28 @@
+{
+  "criterion_verdicts": {
+    "1": "MET",
+    "2": "MET",
+    "3": "MET",
+    "4": "MET",
+    "5": "MISSED"
+  },
+  "criteria_reviewed": 5,
+  "trials_checked_each": 3,
+  "broken_attacks_diagnosed": 15,
+  "all_existing_attack_statuses_scores_and_verdicts_preserved": true,
+  "criteria_unchanged": true,
+  "service_and_runner_files_unchanged": true,
+  "audit_and_submission_logs_unchanged": true,
+  "readme_above_unit8_unchanged": true,
+  "readme_prefix_sha256": "dfbd4dcbde3f30049cac21f2e04547a3858b47678e3e40bf35a4196f59a1c9d3",
+  "distinct_human_reference_fixtures": 5,
+  "human_fixture_texts_match_every_trial": true,
+  "additional_tests": {
+    "count": 3,
+    "result": "passed",
+    "type": "Existing mocked appeal tests using temporary logs"
+  },
+  "new_live_requests": 0,
+  "external_claude_review_received": false,
+  "self_review_labelled_as_self_review": true
+}

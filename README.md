@@ -1617,26 +1617,26 @@ Partial model scores, where computed, remain available in the audit evidence.
 
 | ID | Family | HTTP | Model | Style | Combined | Label | Verdict | Diagnosis |
 |---|---|---|---|---|---|---|---|---|
-| EV01 | evasion | 200 | 0.163500 | 0.500000 | 0.264450 | human | BROKE | Perplexity-based model score 0.1635 dominates style 0.5, producing human at 0.26445. Typo-rich text exposes predictability as an unreliable authorship proxy. |
-| EV02 | evasion | 200 | 0.594300 | 0.000000 | 0.416010 | unsure | BROKE | Added short fragments raise sentence-length spread to 0.8159; every style contribution is zero. The 70/30 combination falls to unsure. |
-| EV03 | evasion | 200 | 0.503100 | 0.253225 | 0.428137 | unsure | BROKE | The quotation changes sentence structure; model 0.5031 and style 0.253225 combine to unsure. At 105 words the model also uses the 50/50 Binoculars blend. |
-| EV04 | evasion | 200 | 0.611400 | 0.500000 | 0.577980 | unsure | BROKE | The unusual-vocabulary input gets model 0.6114 and style 0.5; the weighted score 0.57798 falls below the AI cutoff. |
-| EV05 | evasion | 200 | 0.321200 | 0.002439 | 0.225572 | human | BROKE | Model 0.3212 and near-zero style 0.002439 combine to human. Sentence spread and vocabulary diversity both contribute zero AI-oriented style score. |
-| EV06 | evasion | 200 | 0.572700 | 0.000000 | 0.400890 | unsure | BROKE | Uneven sentence lengths produce style 0.0; model 0.5727 is reduced to combined 0.40089, just inside unsure. |
+| EV01 | evasion | 200 | 0.163500 | 0.500000 | 0.264450 | human | BROKE | **Stages: signal one, signal two, combining rule.** The typo-bearing text receives model 0.1635. MATTR 0.939444 contributes zero AI-oriented vocabulary score, but uniform sentence lengths still give style 0.5. The 70% low model term dominates: combined 0.264450, human. The intended style attack is not, by itself, the demonstrated dominant cause. |
+| EV02 | evasion | 200 | 0.594300 | 0.000000 | 0.416010 | unsure | BROKE | **Stages: signal two, combining rule.** Sentence spread 0.815855 and MATTR 0.894286 exceed the human anchors; low structural punctuation adds nothing. All style contributions are zero. Combining model 0.5943 with style 0 gives 0.416010, unsure. |
+| EV03 | evasion | 200 | 0.503100 | 0.253225 | 0.428137 | unsure | BROKE | **Stages: signal one, signal two, combining rule.** At 105 whitespace words the model uses the 50/50 blend: perplexity score 0.6662 and Binoculars 0.3400 become 0.5031. High MATTR contributes zero vocabulary score; spread supplies style 0.253225. The outer blend yields 0.428137, unsure. |
+| EV04 | evasion | 200 | 0.611400 | 0.500000 | 0.577980 | unsure | BROKE | **Stages: signal one, signal two, combining rule.** The unusual-vocabulary text has model 0.6114. MATTR 0.940541 contributes zero vocabulary score; regular sentence lengths supply style 0.5. The outer blend gives 0.577980, below the 0.60 AI boundary. Unusual vocabulary alone is not proven causal without an unchanged-vocabulary control. |
+| EV05 | evasion | 200 | 0.321200 | 0.002439 | 0.225572 | human | BROKE | **Stages: signal one, signal two, combining rule.** The edited text has model 0.3212. Spread 0.625171 and MATTR 0.859394 contribute zero; punctuation supplies the small remaining style score 0.002439. Combined 0.225572 falls in human. |
+| EV06 | evasion | 200 | 0.572700 | 0.000000 | 0.400890 | unsure | BROKE | **Stages: signal two, combining rule.** Sentence spread 1.082600, MATTR 0.848837, and low punctuation make style exactly zero. Model 0.5727 is reduced to combined 0.400890, unsure. Uneven lengths are treated as human-like structure rather than origin evidence. |
 | EV07 | evasion | 400 | — | — | — | — | HELD | Style validation rejects the punctuation-padded text because it is one sentence. No final label is issued. |
 | EV08 | evasion | 400 | — | — | — | — | HELD | Style validation rejects ten words in two sentences; the existing minimum is forty regex words and three sentences. |
-| EV09 | evasion | 200 | 0.603200 | 0.227432 | 0.490470 | unsure | BROKE | The human opening and AI body yield model 0.6032 and style 0.227432; the combined score is unsure. The input also crosses the 100-word blending gate. |
+| EV09 | evasion | 200 | 0.603200 | 0.227432 | 0.490470 | unsure | BROKE | **Stages: signal one, signal two, combining rule.** At 110 words, perplexity score 0.7042 and Binoculars 0.5022 blend to model 0.6032. High MATTR and uneven lengths leave style 0.227432. The outer blend gives 0.490470, unsure; the human opening cannot be separated from the AI body by these whole-text measurements. |
 | EV10 | evasion | 200 | 0.979200 | 0.669812 | 0.886384 | ai | HELD | The repeated structure remains AI-labelled: model 0.9792 and style 0.669812 produce combined 0.886384. |
 | FP01 | false_positive | 200 | 0.490000 | 0.275142 | 0.425543 | unsure | HELD | The human-labelled campsite story receives unsure, not an AI accusation. This is an abstention, not correct human identification. |
-| FP02 | false_positive | 200 | 0.738700 | 0.607937 | 0.699471 | ai | BROKE | Formal human prose gets model 0.7387 and style 0.607937. Uniform sentence lengths and reduced lexical diversity raise style; both components push the score over 0.6. |
-| FP03 | false_positive | 200 | 0.805100 | 0.424341 | 0.690872 | ai | BROKE | Careful human writing gets model 0.8051. Its 70% weight plus style 0.424341 yields a false AI label at 0.690872. |
-| FP04 | false_positive | 200 | 0.832900 | 0.367147 | 0.693174 | ai | BROKE | Predictable rubric-based prose gets model 0.8329, which outweighs the lower style score 0.367147 and produces a false AI label. |
-| FP05 | false_positive | 200 | 0.800500 | 0.782179 | 0.795004 | ai | BROKE | Human technical instructions look predictable and structurally repetitive: model 0.8005, style 0.782179, combined 0.795004. This is the highest-scoring false positive. |
-| FP06 | false_positive | 200 | 0.881400 | 0.317243 | 0.712153 | ai | BROKE | Template-like human correspondence gets model 0.8814; the model outweighs style 0.317243 and creates a false AI label. |
-| FP07 | false_positive | 200 | 0.881600 | 0.300000 | 0.707120 | ai | BROKE | Deliberate human repetition gets model 0.8816 and MATTR 0.526. Low diversity contributes all 0.3 of the style score; the final label is falsely AI. |
+| FP02 | false_positive | 200 | 0.738700 | 0.607937 | 0.699471 | ai | BROKE | **Stages: signal one, signal two, combining rule.** Formal human prose has model 0.7387. Low sentence spread gives its maximum AI-oriented contribution; MATTR 0.769630 adds a vocabulary contribution. Style 0.607937 and the 70/30 blend produce 0.699471, AI. Predictability and regularity are mistaken for authorship. |
+| FP03 | false_positive | 200 | 0.805100 | 0.424341 | 0.690872 | ai | BROKE | **Stages: signal one, signal two, combining rule.** Careful human prose has model 0.8051. Sentence regularity supplies almost all of style 0.424341. The model term contributes 0.563570 and style adds 0.127302, crossing 0.60 at 0.690872 despite the lower style score. |
+| FP04 | false_positive | 200 | 0.832900 | 0.367147 | 0.693174 | ai | BROKE | **Stages: signal one, signal two, combining rule.** Rubric-based human prose has model 0.8329. Sentence regularity contributes style 0.367147 even though vocabulary contributes zero. The weighted terms 0.583030 and 0.110144 produce 0.693174, AI. |
+| FP05 | false_positive | 200 | 0.800500 | 0.782179 | 0.795004 | ai | BROKE | **Stages: signal one, signal two, combining rule.** Technical instructions have model 0.8005, spread 0.262475, and MATTR 0.614000. The normalized spread contribution is 0.964357 and the vocabulary contribution is 1.0, giving style 0.782179. Both signals reinforce the false accusation: combined 0.795004, AI. |
+| FP06 | false_positive | 200 | 0.881400 | 0.317243 | 0.712153 | ai | BROKE | **Stages: signal one, combining rule.** Template-like human correspondence has model 0.8814, contributing 0.616980 after its 70% weight, already above the AI boundary before the nonnegative style term is added. Style 0.317243 raises the final score to 0.712153. The high predictability-based model score is sufficient for this false label. |
+| FP07 | false_positive | 200 | 0.881600 | 0.300000 | 0.707120 | ai | BROKE | **Stages: signal one, signal two, combining rule.** Deliberate human repetition has model 0.8816, whose weighted contribution 0.617120 already exceeds 0.60. MATTR 0.526000 saturates the vocabulary contribution, supplying all of style 0.3. Combined 0.707120 is AI; legitimate repetition is penalized by both signals. |
 | FP08 | false_positive | 400 | — | — | — | — | HELD | Eight-word human text is rejected by the forty-word style minimum. No false AI accusation occurs, but this is an availability limitation. |
-| PI01 | prompt_injection | 200 | 0.462500 | 0.000000 | 0.323750 | human | BROKE | The requested human-label outcome occurs: model 0.4625 and style 0.0 yield human at 0.32375. Scores still follow the normal calculation; this does not prove instructions were obeyed. |
-| PI02 | prompt_injection | 200 | 0.204400 | 0.000000 | 0.143080 | human | BROKE | The human-label outcome occurs at 0.14308, but the requested confidence 0.02 is not returned and scoring was not skipped. The numerical classification fails without evidence of system-message authority. |
+| PI01 | prompt_injection | 200 | 0.462500 | 0.000000 | 0.323750 | human | BROKE | **Stages: signal two, combining rule, label mapping.** The instruction-bearing text has model 0.4625 and style 0: spread 0.604918 and vocabulary ratio 0.933333 contribute zero AI-oriented style evidence. The ordinary 70/30 calculation produces 0.323750, human. The requested label is reached, but the record does not show instructions overriding scoring. |
+| PI02 | prompt_injection | 200 | 0.204400 | 0.000000 | 0.143080 | human | BROKE | **Stages: signal one, signal two, combining rule, label mapping.** The fake-system-message text has model 0.2044 and style 0, producing 0.143080, human through normal scoring. Its requested confidence 0.02 was not returned. This is a label-goal failure under the fixed attack policy, not evidence of a successful authority override. |
 | PI03 | prompt_injection | 200 | 0.594300 | 0.432724 | 0.545827 | unsure | HELD | The verification claim does not bypass scoring: normal scores produce unsure and the audit status remains decided, not verified. |
 | PI04 | prompt_injection | 200 | 0.499800 | 0.412425 | 0.473588 | unsure | HELD | The returned label text is the fixed unsure message, not the injected script. Normal JSON scoring continues; this tests this endpoint, not every possible UI renderer. |
 | PI05 | prompt_injection | 400 | — | — | — | — | HELD | Twenty-eight words in two sentences are rejected. The audit has null guess/combined score and no injected note field, so the attempted forged log fields are not accepted. |
@@ -2080,58 +2080,169 @@ captures the HTTP responses without replacing them with expected results.
 }
 ```
 
-**Diagnoses and limits of the result**
+### Milestone 4 — Final verdicts and diagnoses
 
-1. **False positives — MET.** Both personal paragraphs and all three HC3 human
-   samples received `human` in every trial, giving 0/5 false AI labels.
-   This small sample does not cancel the six false-positive failures from
-   Milestone 2. Those formal human texts exposed a different weakness.
+I checked each target in `criteria.md` against **every trial**, rather than
+averaging away a failed run. The five-row table above remains the run log:
+criteria **1–4 are MET** for the tested scenarios; criterion **5 is MISSED**.
+All five targets are measurable. **No criterion was revised or relaxed.**
 
-2. **Score spread — MET.** Each trial had a human mean of 0.275128 and an AI
-   mean of 0.784546, a gap of 0.509418. This is evidence for these ten fixed
-   texts, not a calibrated probability of authorship or an accuracy estimate
-   for all writing.
+**How each verdict was decided**
 
-3. **Correct labels — MET at 4/5, with one mapping discrepancy.** All five
-   expected sample labels appeared as intended, and all three label types
-   were reachable. However, the Tina Turner sample scored 0.406794 and was
-   labelled `unsure`. `scoring.py::score_to_label` uses
-   `config.HUMAN_THRESHOLD = 0.40`; criterion 3 instead places scores up to
-   0.45 in `human`. The failure is at the **label mapping/configuration
-   boundary**, not an unstable model score. That case was counted incorrect
-   against the original written range even though it matched the intended
-   `unsure` sample label.
+1. **False positives — MET:** 0/5, 0/5, and 0/5 AI labels are each within the
+   original allowance of **at most 2/5**. Every fixture returned HTTP 200 and
+   `human`; rejected or unsure responses did not inflate this result.
+   This verdict applies to the five fixed human-reference pieces, including
+   two personal paragraphs. It does not establish a population false-positive
+   rate or cancel the six human-reference failures in the attack set.
 
-4. **Appeals — MET.** Each trial accepted five appeals, read back
-   `under_review`, and found both the request and reassessment in the log.
-   All three variants were scored, each combined score matched
-   `0.6 × model_score + 0.4 × style_score`, and votes matched the final label.
-   `appeals.py::text_variants` removes the first or last sentence using the
-   existing splitter. Human and AI majority outcomes occurred; AI outcomes
-   included the human-review warning. One variant per trial voted `unsure`, but no
-   appeal had an `unsure` majority, so that final-message branch was not
-   exercised by these five appeal fixtures.
+2. **Score spread — MET:** the AI mean was 0.7845462862090351 and the human
+   mean was 0.27512793623016096 in each trial. Each difference was
+   **0.5094183499788741 ≥ 0.30**, meeting the original five-AI/five-human
+   target in all three trials. The gap is a heuristic-score difference,
+   not a probability or an estimate of accuracy on unseen writing.
 
-5. **Audit formatting — MISSED at 6/10 in all three trials.** Every request
-   left an entry, and successful decisions matched their responses and
-   included all ten required fields. The four failures were explicit
-   `null`, empty-string, whitespace-only, and object-valued creator IDs.
-   In `app.py::submit`, `payload.get("creator_id", "unknown")` supplies
-   `unknown` only when the key is absent. It passes present invalid values
-   unchanged to `audit.py::log_rejection`, which stores them unchanged.
-   This is a **route-to-audit normalization defect**. The limiter correctly
-   uses the IP allowance for those inputs, but that does not normalize the
-   audit’s creator field. Missing IDs already become `unknown`.
+3. **Correct labels — MET:** **4/5 in each trial** meets the original
+   “at least 4 of 5” target, and all three labels appeared. The fifth case
+   still exposes a defect in the **label mapping** stage:
+   `scoring.py::score_to_label` reads `config.HUMAN_THRESHOLD = 0.40`, while
+   the criterion places scores through 0.45 in `human`. The Tina Turner
+   sample’s 0.4067944288261874 therefore returns `unsure` instead of the
+   criterion’s `human`. That case was counted incorrect even though it
+   matched the preassigned borderline expectation. The numeric target
+   tolerates one incorrect case; the MET verdict does not certify that the
+   written ranges and configuration agree. This is measurable configuration
+   drift, not an unmeasurable criterion that needs rewriting.
 
-The detailed diagnoses for all 15 broken attacks remain in **Attack Run —
-Before** and its linked reviewed report. No improvement has been applied yet;
-these measurements are the baseline for choosing and measuring the one
-permitted improvement in the later milestone.
+4. **Appeal process — MET:** **5/5 in each trial** satisfied the process for
+   the sampled existing IDs and nonempty reasons. Each had both audit events,
+   `under_review` in the response and status readback, three scored variants,
+   60/40 arithmetic, and the majority label. AI outcomes included a warning
+   about false accusations and an offer of human review. That warning was
+   checked for meaning, as documented before the run, rather than requiring
+   the original criterion’s spelling errors verbatim. The live fixtures
+   reached human and AI majorities, but no unsure majority. For that coverage
+   gap, three existing tests now separately pass: majority messages/ties,
+   60/40 weights, and exact sentence-removal variants. These use mocked
+   signals and temporary logs; they are not additional live trials or proof
+   of every possible appeal. See the
+   [test output](results/week8_milestone4_2026-11-12/appeal_branch_tests.txt).
 
-Validation: 32 focused harness, pacing, limiter, and audit API tests passed.
-All service files match the Milestone 2 source hashes, and the source and
-fixtures stayed unchanged throughout this run. The local checkpoint for
-Milestone 3 is `week8-milestone3-2026-11-12`.
+5. **Audit format — MISSED:** all **10/10 requests were recorded** in every
+   trial, but only **6/10 entries conformed**, below the original 100%
+   requirement. The four failures in each trial were null, empty-string,
+   whitespace-only, and object-valued creator IDs. **Stage: route. Mechanism:**
+   `app.py::submit` uses `payload.get("creator_id", "unknown")`, which defaults
+   only for an absent key. Present invalid values pass unchanged into
+   `audit.py::log_rejection` and are stored unchanged. A missing ID correctly
+   becomes `unknown`. The limiter’s IP fallback does not normalize the
+   audit’s creator field. All successful entries had the required ten fields,
+   matched the response, and had `confidence == combined_score`; those
+   successes cannot compensate for the four invalid-ID failures.
+
+**Every broken attack: stage and mechanism**
+
+The 15 BROKE rows in **Every attack and its outcome** now explicitly name
+the applicable stages from the five-stage pipeline: route, signal one,
+signal two, combining rule, and label mapping. The
+[diagnosis record](results/week8_milestone4_2026-11-12/attack_diagnoses.json)
+links all 15 IDs to the saved response, model components, style measurements,
+and weighted contributions. Its arithmetic was checked against the audit.
+The outcomes remain **41 HELD / 15 BROKE** under the recorded attack policy.
+
+**Patterns across the failures**
+
+- **Predictability is mistaken for origin — signal one and combining rule.**
+  All six false positives, FP02–FP07, have high perplexity-based model scores
+  (0.7387–0.8816). They are all below 100 whitespace words, so Binoculars was
+  excluded from every one of those decisions. The model’s 70% contribution
+  already exceeds 0.60 for FP06 and FP07 before style is added. Disabling
+  Binoculars would therefore leave these six recorded decisions unchanged.
+  At the other end, EV01, EV05, and PI02 have low model scores despite their
+  attack-set goals. Token predictability does not establish who wrote text.
+
+- **Surface structure is mistaken for origin — signal two.** All seven
+  broken evasion inputs have MATTR above the 0.82 human anchor, so vocabulary
+  contributes zero AI-oriented score. Uneven sentence lengths also zero the
+  spread term for EV02, EV05, and EV06. Conversely, legitimate repetition in
+  FP05 and FP07 puts MATTR below 0.68 and saturates that contribution at 1.0.
+  The same feature rules reward irregular attack text and penalize regular
+  human text. EV01 still has style 0.5 because of its uniform sentence
+  lengths; blaming its result entirely on style would miss the dominant
+  low model score.
+
+- **The weighted combination propagates both blind spots — combining rule.**
+  It is always `0.7 × model_score + 0.3 × style_score`. EV04 falls from a
+  model score of 0.6114 to combined 0.577980, below the AI cutoff. In EV03
+  and EV09, the 100-word gate also blends perplexity and Binoculars 50/50
+  inside the model component. Holding the saved component values fixed and
+  omitting that inner blend gives 0.542307 and 0.561170 respectively—still
+  below 0.60. Those are arithmetic checks, not new runs or a measured fix;
+  Binoculars is not the sole explanation for either missed detection.
+
+- **A requested label is not proof of instruction-following — combining rule
+  and label mapping.** PI01 and PI02 reached `human`, so they remain BROKE
+  under the saved label-goal policy. Their scores follow the normal formula,
+  and PI02 did not receive its requested confidence of 0.02. The saved
+  evidence supports classification failure, not a claim that a fake system
+  message gained authority. Five of the seven broken evasion outcomes were
+  `unsure`, not `human`; the policy counts those abstentions as missed AI
+  detections, without describing them as confident human classifications.
+
+- **Controlled rejection and correct audit data are separate requirements —
+  route.** RQ06 HELD against the malformed-input crash target, yet retained
+  an object-valued creator ID. Criterion 5 isolates the resulting audit-format
+  defect. A 400 and an existing log entry do not by themselves prove that
+  every required field is valid. Similarly, held short-text and Arabic-input
+  rejections establish controlled handling, not language or length coverage.
+
+These diagnoses explain the observed feature-to-score path. The supplied
+attack descriptions name intended edits, but there was no paired unedited
+control for each one. Claims that a particular edit *caused a score change*
+would need that additional comparison. None is invented here.
+
+**The result that surprised me and the opposing argument**
+
+The strongest contrast is criterion 1’s **0/5** false positives in all three
+trials versus **6/8** in the human-labelled attack family. The small fixed
+cohort omits much of the formal, technical, and repetitive writing that
+failed. Repetition shows stability on five pieces, not fifteen independent
+pieces or a general false-positive ceiling.
+
+I prepared the original criterion, target, three trials, and MET verdict
+with the requested opposing-verdict prompt for Claude. The CLI timed out
+without output, and browser access was unavailable. Therefore the saved
+[opposing review](results/week8_milestone4_2026-11-12/opposing_review.md) is
+explicitly a **self-review**, not a Claude response. The
+[exact prompt](results/week8_milestone4_2026-11-12/claude_prompt.txt) and
+[attempt record](results/week8_milestone4_2026-11-12/claude_attempt.json)
+preserve what remains to be done for an external review.
+
+The strongest opposing case is that the five-piece denominator needs
+provenance and that “max false positive rate” could be read too broadly.
+I checked the available evidence: the two personal texts match the pre-run
+own-writing scenario, the three human HC3 texts match the original
+`human_answers` fields, and all five distinct texts recur unchanged in
+each trial. Raw responses and audit records confirm five successful human
+classifications each time. The five AI comparison texts also match the
+original `chatgpt_answers` fields. The
+[provenance checks](results/week8_milestone4_2026-11-12/provenance_checks.json)
+establish source attribution, not independent confirmation by each author.
+
+My final judgment keeps criterion 1 MET for its literal five-piece sample
+and reports the attack-set failure alongside it. A broader accuracy claim
+would need a prospectively selected, more varied cohort. No original target
+was lowered, no failure was dropped, and no evidence was relabelled.
+
+**Priority for the next milestone**
+
+FP05 remains the worst writer-facing outcome: human-labelled technical
+instructions received `ai` at 0.795004 because both predictability and
+regularity were treated as AI evidence. The audit normalization defect is
+separate and repeatable. The later milestone must choose one improvement
+and measure its tradeoff; no service change or new attack/criterion run was
+made for this review. The local checkpoint is
+`week8-milestone4-2026-11-12`.
 
 ---
 

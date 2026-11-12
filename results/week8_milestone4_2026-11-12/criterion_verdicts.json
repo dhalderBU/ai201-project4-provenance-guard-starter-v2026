@@ -1,0 +1,136 @@
+[
+  {
+    "criterion": 1,
+    "name": "False positive rate",
+    "target": "At most 2/5 human pieces labelled AI",
+    "trials": [
+      {
+        "trial": 1,
+        "measured": "0/5 AI labels",
+        "met": true
+      },
+      {
+        "trial": 2,
+        "measured": "0/5 AI labels",
+        "met": true
+      },
+      {
+        "trial": 3,
+        "measured": "0/5 AI labels",
+        "met": true
+      }
+    ],
+    "verdict": "MET",
+    "decision_reason": "Each trial scored all five fixed human-reference samples and returned zero AI labels, which is within the original allowance of two. This is a sample verdict, not a population false-positive rate.",
+    "diagnosis_stages": [],
+    "source": "results/week8_milestone3_before_2026-11-12/results.json"
+  },
+  {
+    "criterion": 2,
+    "name": "AI minus human mean score",
+    "target": "Mean gap >= 0.30 (5 AI + 5 human)",
+    "trials": [
+      {
+        "trial": 1,
+        "measured": 0.5094183499788741,
+        "met": true
+      },
+      {
+        "trial": 2,
+        "measured": 0.5094183499788741,
+        "met": true
+      },
+      {
+        "trial": 3,
+        "measured": 0.5094183499788741,
+        "met": true
+      }
+    ],
+    "verdict": "MET",
+    "decision_reason": "Every trial returned a mean AI score of 0.7845462862090351 and a mean human score of 0.27512793623016096; their difference 0.5094183499788741 exceeds the original minimum of 0.30.",
+    "diagnosis_stages": [],
+    "source": "results/week8_milestone3_before_2026-11-12/results.json"
+  },
+  {
+    "criterion": 3,
+    "name": "Correct labels",
+    "target": "At least 4/5 correct labels",
+    "trials": [
+      {
+        "trial": 1,
+        "measured": "4/5",
+        "met": true
+      },
+      {
+        "trial": 2,
+        "measured": "4/5",
+        "met": true
+      },
+      {
+        "trial": 3,
+        "measured": "4/5",
+        "met": true
+      }
+    ],
+    "verdict": "MET",
+    "decision_reason": "Each trial had four cases matching both the preassigned expected label and the original score bands, meeting the four-of-five allowance. All three labels appeared. The fifth case exposes the unchanged 0.40 service cutoff versus the written 0.45 cutoff; the numeric target allows one miss and does not make the implementation discrepancy disappear.",
+    "diagnosis_stages": [
+      "label mapping"
+    ],
+    "source": "results/week8_milestone3_before_2026-11-12/results.json"
+  },
+  {
+    "criterion": 4,
+    "name": "Appeal process",
+    "target": "5/5 appeals satisfy the recorded process",
+    "trials": [
+      {
+        "trial": 1,
+        "measured": "5/5",
+        "met": true
+      },
+      {
+        "trial": 2,
+        "measured": "5/5",
+        "met": true
+      },
+      {
+        "trial": 3,
+        "measured": "5/5",
+        "met": true
+      }
+    ],
+    "verdict": "MET",
+    "decision_reason": "All five sampled appeals in each trial were accepted, retained under_review status, recorded both audit events, scored the three variants with 60/40 arithmetic, and returned the majority label and applicable warning. This establishes the process for the tested inputs; the live cohort did not produce an unsure majority. Three existing mocked tests separately passed for majority messages, weights, and exact variants.",
+    "diagnosis_stages": [],
+    "source": "results/week8_milestone3_before_2026-11-12/results.json"
+  },
+  {
+    "criterion": 5,
+    "name": "Complete and accurate audit entries",
+    "target": "10/10 requests logged in the required format",
+    "trials": [
+      {
+        "trial": 1,
+        "measured": "6/10",
+        "met": false
+      },
+      {
+        "trial": 2,
+        "measured": "6/10",
+        "met": false
+      },
+      {
+        "trial": 3,
+        "measured": "6/10",
+        "met": false
+      }
+    ],
+    "verdict": "MISSED",
+    "decision_reason": "All ten requests per trial were logged, but four entries per trial violate the explicit requirement to use unknown for invalid creator IDs. Only six of ten conform, below the required 100%; recording the raw value is not enough to meet the whole criterion.",
+    "diagnosis_stages": [
+      "route"
+    ],
+    "source": "results/week8_milestone3_before_2026-11-12/results.json"
+  }
+]
