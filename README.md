@@ -4,13 +4,13 @@
 >
 > **New to this repo? Read [RUNNING.md](RUNNING.md) first.**
 >
-> Once `python test.py` passes, in one terminal:
+> Once `python test.py` passes, start the server in one terminal:
 >
 > ```bash
 > python app.py
 > ```
 >
-> and in another:
+> Then check the service in another terminal:
 >
 > ```bash
 > curl -X POST http://127.0.0.1:5000/ping \
@@ -34,27 +34,27 @@
 
 <!-- ═══════════════════════ UNIT 7 — THE BUILD ═══════════════════════ -->
 
-## What This Does (includes stretch feature)
+## What This Does
 
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
 I estimate how AI-like text looks using perplexity, Binoculars, and style
-measurements including MATTR. I treat the result as a heuristic, not proof of
-authorship.
+measurements, including MATTR (moving-average type-token ratio with a 50-word
+window). I treat the result as a heuristic, not proof of authorship.
 
 1. I accept `text` and an optional `creator_id` at `POST /submit`.
-2. I reject invalid JSON, empty text, and insufficient text with HTTP `400`.
+2. I reject invalid JSON, empty text, and text that is too short with HTTP `400`.
 3. I calculate perplexity with `detector.model_signal(text)`. At 100 words or
    more, I blend it 50/50 with Binoculars when available; otherwise I use
    perplexity alone.
 4. I calculate sentence-length spread, punctuation density, and MATTR with
    `stylometry.style_signal(text)`.
-5. I combine 70% model score and 30% style score in `scoring.py::combine_signals`.
+5. I combine 70% of the model score with 30% of the style score in `scoring.py::combine_signals`.
 6. I select `human`, `unsure`, or `ai` with `scoring.score_to_label` and return
    the corresponding sentence from `scoring.LABEL_TEXT`.
 7. I save the text in `logs/submissions.jsonl` and the decision in `logs/audit.jsonl`,
    linked by `content_id`. I offer automatic appeals
-   or human verification with supporting text and a reviewer decision.
+   or human verification with supporting text and a reviewer's decision.
 
 I link these JSONL files by `content_id`, with one JSON object per line:
 
@@ -90,14 +90,15 @@ easier for that model to predict. I convert it to an AI-oriented score:
 perplexity_score = 1 / (1 + (perplexity / 45.0) ** 1.6)
 ```
 
-I clamp the score to `[0, 1]` and round to four decimals. Higher means more
-AI-like; the model scores text rather than identifying its author.
+I clamp the score to `[0, 1]` and round it to four decimal places. Higher scores
+mean more AI-like text; the model scores text rather than identifying its author.
 
 For my stretch feature, I use `binoculars_signal.py::binoculars_signal`, inspired
 by Hans et al. (2024),
 [*Spotting LLMs With Binoculars: Zero-Shot Detection of Machine-Generated Text*](https://proceedings.mlr.press/v235/hans24a.html),
 published at ICML 2024. I use GPT-2 and DistilGPT-2 with matching tokenizer
-vocabularies. My 50/50 blend is a scoring choice in this project.
+vocabularies. My 50/50 blend is a scoring choice for this project, based on
+results from multiple trials.
 
 In `app.py::submit`, I use the blend only when Binoculars succeeds and
 `len(text.split()) >= BINOCULARS_MIN_WORDS` (currently `100`):
@@ -111,14 +112,14 @@ else:
 
 I still calculate and return Binoculars for shorter inputs, but set
 `binoculars_used` to `false`. I also use perplexity alone if Binoculars raises
-`detector.DetectorUnavailable`. I then combine 70% model and 30% style through
+`detector.DetectorUnavailable`. I then combine 70% of the model score with 30% of the style score through
 `scoring.py::combine_signals`.
 
 **Why that might differ between human and AI writing:**
 
-I treat predictable phrasing as possible AI-like evidence, but people also
-write plainly and repeat familiar expressions. Predictability cannot establish
-authorship.
+I treat predictable phrasing as possible evidence of AI-generated text, but
+people also write plainly and repeat familiar expressions. Predictable phrasing
+can increase the AI-oriented score, but it cannot establish authorship.
 
 **What it can't see:**
 
@@ -144,28 +145,8 @@ vocabulary diversity using moving-average type-token ratio (MATTR) in
 I use `TTR_WINDOW = 50`. `ttr_measure(text)` returns
 `(value, ai_anchor, human_anchor)`; the table shows its measurement value.
 These empty-input zeros apply to the raw measurements. The combined
-`style_signal(text)` requires at least three sentences and 40 word tokens,
+`style_signal(text)` requires at least three sentences and 40 word tokens;
 otherwise it raises `TextTooShortError`.
-
-**Stretch feature — what MATTR means:**
-
-MATTR means **moving-average type-token ratio**: distinct lowercase words
-divided by word occurrences, averaged over sliding windows. I use
-`moving_average_ttr(text, 50)` through `ttr_measure(text)` to average windows
-1–50, 2–51, and so on. At 50 word tokens or fewer, I use whole-text TTR
-with the active MATTR anchors (`0.72`, `0.86`).
-
-I keep `type_token_ratio(text)` available. Setting `TTR_WINDOW = 0` selects
-whole-text TTR and its original anchors.
-
-**Why use MATTR (proposed by claude):**
-
-I use MATTR to reduce the length sensitivity of whole-text TTR, which tends
-to fall as longer passages repeat words. Equal-sized windows make vocabulary
-diversity easier to compare. I follow Covington and McFall (2010),
-[*Cutting the Gordian Knot: The Moving-Average Type–Token Ratio (MATTR)*](https://www.tandfonline.com/doi/abs/10.1080/09296171003643098).
-I chose the 50-word window and anchors for this project; MATTR measures
-vocabulary diversity, not authorship.
 
 Sentence splitting uses whitespace after `.`, `!`, or `?`. Tokenization uses
 `[A-Za-z']+`, matching the sample: digits are excluded, straight apostrophes
@@ -173,8 +154,10 @@ stay within tokens, and curly apostrophes split tokens. Wordless sentence
 fragments remain in the spread distribution, also matching the sample.
 Structural punctuation density can exceed `1.0`; it is a raw ratio, not a score.
 
-`style_subscores(text)` converts the measurements into AI-oriented contributions.
-For the current MATTR settings, the calculation is:
+**Combining the three style measurements:**
+
+`style_subscores(text)` converts sentence-length spread, punctuation density,
+and MATTR into AI-oriented contributions. With the current settings:
 
 ```python
 spread_ai = clamp01((0.60 - spread) / (0.60 - 0.25))
@@ -223,8 +206,8 @@ the raw measurements, normalized contributions, combined style score, and label.
 The API continues to pass the numeric style signal into its separate
 model/style combination; these thresholds do not change that combining rule.
 
-I slide the window across the whole text, without a word-count cutoff. My
-anchors need evaluation on labeled samples; they are not authorship boundaries.
+These anchors and weights are project choices that need evaluation on labeled
+samples; they are not authorship boundaries or calibrated probabilities.
 
 **Why that might differ between human and AI writing:**
 
@@ -239,6 +222,94 @@ on window size and topic; short inputs retain whole-text TTR's length sensitivit
 My sentence splitter can misread abbreviations, and my word pattern misses
 accented letters and other scripts.
 
+#### Stretch feature — MATTR
+
+MATTR means **moving-average type-token ratio**. It measures vocabulary variety
+by averaging the proportion of unique words in overlapping windows. It supplies
+the vocabulary-diversity measurement within the style signal.
+
+**MATTR calculation flow:**
+
+1. **Input text** → Extract word tokens with `words(text)` and lowercase them.
+2. **Create a 50-word window** → Start with words 1–50.
+3. **Calculate the window's TTR** → Unique words in the window ÷ 50.
+4. **Slide forward one word** → Repeat for words 2–51, 3–52, and so on.
+5. **Average all window TTRs** → This average is the MATTR value.
+
+```text
+For N word tokens greater than 50:
+Number of windows = N − 50 + 1
+MATTR = Sum of all window TTRs ÷ Number of windows
+```
+
+I use `moving_average_ttr(text, 50)` through `ttr_measure(text)`, with
+`TTR_WINDOW = 50`. Windows can cross sentence boundaries and cover the whole
+text, without an upper word-count cutoff. At 50 word tokens or fewer, the
+function uses unique words divided by total words across the whole input.
+Empty input returns `0.0`. Setting `TTR_WINDOW = 0` selects the separate
+whole-text `type_token_ratio(text)` calculation.
+
+Higher MATTR means greater vocabulary variety; lower MATTR means more
+repetition within the windows. For example, window TTRs of `0.80`, `0.82`, and
+`0.84` give a MATTR of `(0.80 + 0.82 + 0.84) / 3 = 0.82`.
+
+**Why use MATTR (suggested by Claude):**
+
+I use MATTR to reduce the length sensitivity of whole-text TTR, which tends
+to fall as longer passages repeat words. Equal-sized windows make vocabulary
+diversity easier to compare. I follow Covington and McFall (2010),
+[*Cutting the Gordian Knot: The Moving-Average Type–Token Ratio (MATTR)*](https://www.tandfonline.com/doi/abs/10.1080/09296171003643098).
+The 50-word window is my project choice.
+
+**MATTR limitations:**
+
+MATTR depends on topic, window size, and which tokens the word pattern captures.
+For short inputs that use whole-text TTR, length sensitivity remains. MATTR
+measures vocabulary diversity; repetition by itself does not establish who
+wrote the text.
+
+### Signal three — Binoculars (stretch feature)
+
+**What it measures:**
+
+I use `binoculars_signal.py` to compare the text's predictability with a
+baseline from two related language models: GPT-2 as the observer and
+DistilGPT-2 as the performer. The models use matching tokenizer vocabularies.
+GPT-2 measures its average surprise at the actual next tokens
+(log-perplexity). I divide that by its expected surprise at next tokens drawn
+from DistilGPT-2's predictions for the same text prefixes (cross-entropy).
+
+```text
+B = log_perplexity / cross_entropy
+binoculars_score = 1 / (1 + exp(20.0 * (B - 0.85)))
+```
+
+The code stores that cross-entropy under the name `cross_perplexity`.
+A lower raw ratio `B` becomes a higher AI-oriented score in `[0, 1]`;
+`B = 0.85` maps to `0.5`. The midpoint and steepness come from `config.py`.
+This score is a heuristic, not a calibrated probability of AI authorship.
+
+**Why that might differ between human and AI writing:**
+
+Language models often choose words that related models also find predictable.
+Human word choices can be more surprising. Comparing the actual text with a
+model-based expectation helps account for context: an unusual topic can make
+either human or AI writing surprising. The Binoculars ratio aims to measure
+that relative surprise instead of relying on predictability alone. This approach
+is described in [Hans et al. (2024), *Spotting LLMs With Binoculars*](https://arxiv.org/html/2401.12070v3#S3).
+
+**What it can't see:**
+
+It cannot verify who wrote the text, recover the original prompt, or inspect
+drafts and editing history. [Hans et al.](https://arxiv.org/html/2401.12070v3#S5.SS3).
+
+With the current configuration, my implementation reads only the first 400
+tokens, so later passages do not affect this signal. In `POST /submit`, I include it in the combined model score
+only when it is available and the input contains at least 100 whitespace-separated
+words. That cutoff is a project choice. My GPT-2/DistilGPT-2 setup and scoring
+settings need their own evaluation; the paper's reported accuracy does not
+establish this implementation's accuracy.
+
 ### The combining rule
 
 <!-- Write the rule in words, then give the numbers. What happens when the two
@@ -246,7 +317,7 @@ accented letters and other scripts.
 
 **The rule:**
 
-I combine 70% model score and 30% style score. The model score includes
+I combine 70% of the model score with 30% of the style score. The model score includes
 Binoculars only when the conditions above are met. Both inputs are in `[0, 1]`,
 so their weighted average stays in that range. I give the model more influence
 when they disagree, which also gives its mistakes more influence.
@@ -312,9 +383,13 @@ calibrated probability.
 <!-- ⚠️ The grader checks your code against that line. If your rule lives
      somewhere else, say where. -->
 It lives in `scoring.py::combine_signals`
-**A case where my two signals split, and what my rule does with it:**
+**A case where my signals disagree and how my rule handles it:**
 
-I go by total score based on the scoring mechanism. Even if the results slitthe way the scoring is doe the model_score has higher overall weitage compared to stylometry. The model score is also a weighted score 50:50 of the detecotr model and the binocular 2nd model. so the split in decision is ignored instead we take the decision based on the overall computed score.
+I base the decision on the combined score when the signals disagree. The model
+score has more weight than the style score. When Binoculars is available and
+the input meets the 100-word minimum, the model score is a 50/50 blend of the
+perplexity and Binoculars scores. The final label follows the combined score
+and its thresholds.
 
 I recorded this baseline example before Binoculars, MATTR, and the threshold
 change. `Milestone4_test_sample/borderline_ai_milestone4.json` returned a model
@@ -342,11 +417,10 @@ values illustrate the model's larger weight; they are not additional test runs.
 ### Milestone 4 — Input tests and audit evidence
 
 I keep these baseline results unchanged: they used perplexity alone, whole-text
-TTR, and a `0.45` human cutoff, before my stretch changes.
+TTR, and a `0.45` human cutoff before my stretch changes.
 
 My four Milestone 4 entries come from [logs/audit.jsonl](logs/audit.jsonl), lines
-164–167, recorded on **November 10, 2026 at 12:58:48 a.m. Pacific Standard
-Time** (`2026-11-10T08:58:48+00:00` in the log). The submissions were made with:
+164–167, recorded on **November 10, 2026 at 12:58:48 a.m.** (`2026-11-10T08:58:48+00:00` in the log). The submissions were made with:
 
 ```bash
 for sample in ./Milestone4_test_sample/*.json; do
@@ -357,17 +431,9 @@ for sample in ./Milestone4_test_sample/*.json; do
   printf '\n'
 done
 ```
+**Evidence from the JSONL log:**
+{"timestamp": "2026-11-10T08:22:26+00:00", "content_id": "c_e7713e4b8ef4", "creator_id": "demo_instructor", "guess": null, "model_score": 0.4445, "style_score": 0.19929078014184398, "combined_score": 0.3709372340425532, "label": "human", "status": "decided", "confidence": 0.3709372340425532}
 
-The audit records do not store filenames. The mapping below was checked against
-the loop's sorted file order, the creator IDs, and a local recalculation of both
-signals for each file. All four recalculated signal pairs matched the recorded
-values. These checks did not submit new requests or append audit entries.
-
-The separate clearly-human test was already recorded earlier, on **November
-10, 2026 at 12:22:26 a.m. Pacific Standard Time**, in audit line 163. It used
-`samples/clearly-human.json`. Recalculating both signals for that saved file
-matched the earlier entry's creator ID and scores. The table includes that
-earlier test alongside the four files from the Milestone 4 batch.
 
 **Recorded results:** Scores in the table are rounded to six decimal places;
 the exact logged values are preserved in the JSONL excerpt below. Baseline labels
@@ -379,16 +445,8 @@ used `0.7 * model_score + 0.3 * style_score`, with human at `<= 0.45`, AI at
 | Clearly AI | [clearly-AI_milestone4.json](Milestone4_test_sample/clearly-AI_milestone4.json) | 0.919500 | 0.655224 | 0.840217 | `ai` |
 | Clearly human — earlier run | [clearly-human.json](samples/clearly-human.json) | 0.444500 | 0.199291 | 0.370937 | `human` |
 | Formal human — designated test category | [clearly-human_milestone4.json](Milestone4_test_sample/clearly-human_milestone4.json) | 0.308100 | 0.455105 | 0.352202 | `human` |
-| Lightly-edited AI | [clearly-AI_lightly_editted.json](Milestone4_test_sample/clearly-AI_lightly_editted.json) | 0.832100 | 0.823410 | 0.829493 | `ai` |
+| Lightly edited AI | [clearly-AI_lightly_editted.json](Milestone4_test_sample/clearly-AI_lightly_editted.json) | 0.832100 | 0.823410 | 0.829493 | `ai` |
 | Borderline | [borderline_ai_milestone4.json](Milestone4_test_sample/borderline_ai_milestone4.json) | 0.519500 | 0.680849 | 0.567905 | `unsure` |
-
-**Assignment coverage:** `clearly-human_milestone4.json` is designated as the
-formal-human case, and `borderline_ai_milestone4.json` is designated as the
-borderline case. Together with the earlier `samples/clearly-human.json` test,
-the recorded runs cover all four required categories: clearly AI, clearly
-human, formal human, and lightly-edited AI. The borderline input is an
-additional test. The clearly-human and formal-human cases use different texts
-and different audit entries.
 
 **What the separate signals show:**
 
@@ -403,7 +461,7 @@ and different audit entries.
    is about `0.510211`, and punctuation contributes zero. Those style rules
    produce some AI-like evidence for this human text, but the model's larger
    weight keeps the final score at about `0.352202`, within the human range.
-3. **Lightly-edited AI:** The edited sample receives an AI label: model
+3. **Lightly edited AI:** The edited sample receives an AI label: model
    `0.8321`, style about `0.823410`, combined about `0.829493`.
    Its low sentence-length spread (`0.159458`) and low TTR (`0.560694`) both
    map to maximum AI sub-scores of `1.0`. Punctuation contributes a sub-score
@@ -415,7 +473,7 @@ and different audit entries.
    to `spread_ai = 0.761699`, despite punctuation contributing zero. The final
    score is about `0.567905`, so the result is unsure, consistent with its
    intended borderline role. This checks the uncertainty band; it does not
-   establish authorship or replace the separate clearly-human test.
+   establish authorship or replace the separate clearly human test.
 5. **Clearly human, from the earlier run:** The model score is `0.4445`, and
    the style score is about `0.199291`. Both fall in their respective human
    ranges. The weighted calculation is
@@ -426,13 +484,13 @@ These are diagnostics of five selected samples, not an accuracy estimate.
 The style measurements and sub-scores above were recalculated from the saved
 texts; they are not additional fields claimed to be in the original audit log.
 
-**The earlier clearly-human audit entry:**
+**The earlier clearly human audit entry:**
 
 ```jsonl
 {"timestamp": "2026-11-10T08:22:26+00:00", "content_id": "c_e7713e4b8ef4", "creator_id": "demo_instructor", "guess": null, "model_score": 0.4445, "style_score": 0.19929078014184398, "combined_score": 0.3709372340425532, "label": "human", "status": "decided", "confidence": 0.3709372340425532}
 ```
 
-**The four original audit entries, in submission order: borderline, lightly-edited AI, clearly AI, and the designated formal-human sample:**
+**The four original audit entries, in submission order: borderline, lightly edited AI, clearly AI, and the designated formal human sample:**
 
 ```jsonl
 {"timestamp": "2026-11-10T08:58:48+00:00", "content_id": "c_df4de07a8019", "creator_id": "demo_instructor", "guess": null, "model_score": 0.5195, "style_score": 0.6808494097161918, "combined_score": 0.5679048229148576, "label": "unsure", "status": "decided", "confidence": 0.5679048229148576}
@@ -449,7 +507,7 @@ in this run and is reproduced unchanged above.
 
 ---
 
-**API endpoint details / shape:**
+**API endpoints and request/response formats:**
 
 | Endpoint | Request fields | Response fields |
 |---|---|---|
@@ -461,7 +519,7 @@ in this run and is reproduced unchanged above.
 | `GET /content/<id>` | Content ID in the URL | `content_id`, `status`, `credential`; also `verification_request_id` and `verification_status` after a human-verification request. Unknown IDs return HTTP `404`. |
 | `GET /log` | Optional query parameters: `content_id`, `limit` | `count`, `entries`; filtering by `content_id` shows the original decision and subsequent appeal events. |
 
-I return the same classification in `guess` and `label`, with its sentence in
+I return the same classification in `guess` and `label`, with its message in
 `label_text`. I set `confidence = combined_score`; it measures AI-likeness,
 not certainty. I default an omitted `creator_id` to `"unknown"`.
 
@@ -496,7 +554,7 @@ text. Certification requires a reviewer decision.
 I preserve these baseline responses from before Binoculars, MATTR, and the
 human-cutoff change from `0.45` to `0.40`.
 
-On **November 10, 2026 at 1:20:16 a.m. Pacific Standard Time**, the three saved
+On **November 10, 2026 at 1:20:16 a.m.**, the three saved
 texts below were submitted to the running `POST /submit` service with
 `creator_id = "milestone5_label_verification"`. All three requests returned
 HTTP `200`. The model and style signals ran on the actual text without mocks.
@@ -589,7 +647,7 @@ I select the process through `review_type`; unsupported values return HTTP `400`
 ```
 
 I record the supporting text and UTC request time in `logs/audit.jsonl`, return
-HTTP `202` with a `verification_request_id`, and set `under_review`. Human
+HTTP `202` with a `verification_request_id`, and set the status to `under_review`. Human
 verification uses a reviewer's decision without rerunning model or style scoring.
 I use the original submission's writer ID. I inspect the saved text and evidence through
 `GET /verification/review/<id>`, then submit `certified` or `not_certified` to
@@ -606,8 +664,9 @@ For both review paths, I retrieve the original text by `content_id` from
 `logs/submissions.jsonl`. I support older items through text already saved in
 their historical audit entries. I append appeal outcomes to `logs/audit.jsonl`.
 
-For automatic appeals, I use perplexity alone as the model input, plus the current MATTR
-style signal. I combine them through `scoring.combine_appeal_signals`:
+For automatic appeals, I use perplexity alone as the model input, together with
+the current style signal, which includes MATTR. I combine them through
+`scoring.combine_appeal_signals`:
 
 ```text
 APPEAL_WEIGHT_MODEL_SIGNAL = 0.6
@@ -615,7 +674,7 @@ APPEAL_WEIGHT_STYLE_SIGNAL = 0.4
 appeal_score = (0.6 * model_score) + (0.4 * style_score)
 ```
 
-I label each version human at `<= 0.40`, AI at `>= 0.60`, and unsure between.
+I label each version human at `<= 0.40`, AI at `>= 0.60`, and unsure between those thresholds.
 I take the majority vote, using unsure for a three-way tie. I retain the
 original decision, which used the submission's 70/30 weights.
 
@@ -632,7 +691,7 @@ An AI majority also explains that the assessment can be wrong and asks the
 writer to provide earlier versions for human review, as shown in the actual
 response below. Invalid JSON or empty fields return HTTP `400`; a nonexistent
 submission ID returns HTTP `404`. A variant too short to score votes unsure,
-with unavailable scores left null and an `insufficient_data` status. If the
+with unavailable scores left as `null` and a status of `insufficient_data`. If the
 original text is missing from both files, I still record the automatic appeal;
 its evaluations report `original_text_unavailable` and vote unsure. A model-loading
 failure similarly votes unsure with `model_unavailable`.
@@ -640,7 +699,6 @@ failure similarly votes unsure with `model_unavailable`.
 ### Actual submission, appeal, and audit check
 
 I captured this baseline run on **November 10, 2026 at 1:31:11 a.m. PST**
-(`2026-11-10T09:31:11+00:00`), before Binoculars, MATTR, and the threshold change.
 I used real model/style scores and preserved the responses below. Rerunning
 these requests with the current code can produce different scores.
 These historical responses predate `review_type` and the extra signal fields.
@@ -816,9 +874,7 @@ event has `status: "under_review"`. Its three evaluations match the appeal
 response, and the AI majority is three votes out of three. Each evaluation
 records its model score, style score, combined score, and label.
 
-My baseline test run passed 43 tests before the stretch changes.
-`test_appeals.py` covers votes, sentence removal, 60/40 weighting, validation,
-text retention, and unavailable or insufficient inputs.
+
 
 <details>
 <summary>Earlier Milestone 3 observations</summary>
@@ -939,17 +995,22 @@ baseline submission and appeal above with both real signals.
 
 ## How I Used AI
 
-I keep these earlier AI exchanges as history; my current settings are documented
-in **Signals and Scoring**.
+I keep these earlier AI exchanges as history, with light edits to spelling,
+grammar, and formatting. My current settings are documented in **Signals and
+Scoring**.
 
 **Moment 1 — Implementing and inspecting the style signal**
 
-- *What I asked for:* I wan tot build a AI writing detector what is the rule that I should follow for style if the three components are:
-Spread Score Rule : Calculate $\frac{\text{stdev}}{\text{mean}}$ of sentence lengths
-Punctuation Density Rule -
-Token Ratio / TTR Rule : Calculate $\frac{\text{unique lowercase words}}{\text{total words}}$
+- *What I asked for:* I want to build an AI-writing detector. What rule should
+I use for the style signal if its three components are sentence-length spread,
+punctuation density, and type-token ratio (TTR)? I calculate sentence-length
+spread as $\frac{\text{stdev}}{\text{mean}}$ of sentence lengths and TTR as
+$\frac{\text{unique lowercase words}}{\text{total words}}$.
 
-What should be the weights or proportion that we a should add the three componenets so that the overall style score is in the range 0-1 which we high scores are AI and low scores are human
+What weights should I give these three components so that the overall style
+score falls between 0 and 1, with higher scores indicating AI-like writing and
+lower scores indicating human-like writing?
+
 - *What came back:* The key thing is that weighting is the last step. Weights only produce a 0–1 score if each component is already a 0–1 “AI-likeness” number pointing the same direction, so the rule has three parts.
 
 1. Normalize each raw feature into 0–1, with high = AI
@@ -964,9 +1025,11 @@ def to_ai_score(x, human_val, ai_val):
 
 Reasonable starting anchors (tune these on your own labeled samples — they are calibration points, not constants):
 
-Spread (CV = stdev/mean of sentence lengths): AI text is “flat,” human text is bursty. spread_ai = to_ai_score(cv, human_val=0.75, ai_val=0.35) — a CV ≥ 0.75 scores 0, ≤ 0.35 scores 1.
-Punctuation density (punctuation marks / total words): count , ; : — ( ) per word. LLM prose tends to run dense with commas, colons and dashes; casual human writing runs lighter. punct_ai = to_ai_score(density, human_val=0.08, ai_val=0.16). This is the noisiest of the three — formal human writing (academic, legal) is also dense — so verify the direction on your data before trusting it.
-TTR (unique lowercase words / total words): repetitive vocabulary leans AI. ttr_ai = to_ai_score(ttr, human_val=0.62, ai_val=0.45). One caveat: TTR falls as text gets longer, so compute it on fixed-size windows (e.g. 100–200 words, averaged) or the anchors above won’t hold across different document lengths.
+Spread (CV = stdev/mean of sentence lengths): AI text is “flat”; human text is bursty. spread_ai = to_ai_score(cv, human_val=0.75, ai_val=0.35) — a CV ≥ 0.75 scores 0, while a CV ≤ 0.35 scores 1.
+
+Punctuation density (punctuation marks / total words): count the marks `, ; : — ( )` per word. LLM prose tends to be dense with commas, colons, and dashes; casual human writing tends to use fewer of them. punct_ai = to_ai_score(density, human_val=0.08, ai_val=0.16). This is the noisiest of the three — formal human writing (academic or legal) is also dense with punctuation — so verify the direction on your data before trusting it.
+
+TTR (unique lowercase words / total words): repetitive vocabulary leans AI. ttr_ai = to_ai_score(ttr, human_val=0.62, ai_val=0.45). One caveat: TTR falls as text gets longer, so compute it over windows of a fixed size (e.g., 100–200 words) and average the results, or the anchors above won’t hold across different document lengths.
 
 2. Combine with weights that sum to 1
 
@@ -979,38 +1042,46 @@ Since each component is in [0, 1] and the weights sum to 1, the result is guaran
 Once you have even 50–100 labeled samples per class, fit a logistic regression on the three normalized components. The sigmoid output is already 0–1, and the learned coefficients tell you what the weights actually should be for your corpus — often punctuation drops out almost entirely. That’s also where you’d pick the decision threshold (0.5 is just a default; look at your precision/recall curve).
 
 One honest limit to keep in mind for the write-up: three stylometric features will separate obvious cases but will produce plenty of false positives on polished, formal human writing and false negatives on AI text that’s been prompted to “write casually.” Treat the score as a signal, not a verdict.
-- *What I changed:* 
-I used this information to create my methods in stylometry.py and scoring.py .
+- *What I changed:* I used this information to create the methods in
+`stylometry.py` and `scoring.py`.
 
-**Moment 2 — i dont have many samples to train. SO give me the standard rule to be followed for short paragraph of 6-10 lines**
+**Moment 2 — Choosing rules for short paragraphs with limited training samples**
 
-- *What I asked for:* i  dont have many samples to train. SO give me the standard rule to be followed for short paragraph of 6-10 lines
+- *What I asked for:* I don't have many training samples. Please give me a
+standard rule to follow for a short paragraph of 6–10 lines.
 - *What came back:* Decision rule.
 
 ≥ 0.65 → likely AI
 0.40 – 0.65 → uncertain
 < 0.40 → likely human
 
-Why these numbers for short text
+Why these numbers for short text?
 
-Spread: with only 6–10 sentences, CV swings a lot, so the human anchor is lowered to 0.60 (vs 0.75 for long text) to avoid flagging a human who happens to write evenly. One very short sentence (“Really.”) will spike the CV, which is fine — that’s a human tell.
+Spread: with only 6–10 sentences, CV swings a lot, so the human anchor is lowered to 0.60 (versus 0.75 for long text) to avoid flagging a human who happens to write evenly. One very short sentence (“Really.”) will spike the CV, which is fine — that’s a human tell.
 Punctuation: count only the “structural” marks. Periods are excluded because every sentence has one; they carry no information.
-TTR: in under 200 words most words appear once, so human TTR sits around 0.80–0.90 and even repetitive AI text rarely drops below ~0.60. Using the long-text anchors (0.62/0.45) here would make everything look human.
+TTR: in passages of fewer than 200 words, most words appear once, so human TTR sits around 0.80–0.90, and even repetitive AI text rarely drops below ~0.60. Using the long-text anchors (0.62/0.45) here would make everything look human.
 
 Sanity check before you ship it: paste in two or three paragraphs you know are human (your own writing, a news paragraph) and two or three you generate with an LLM on a plain prompt. If the humans don’t land under ~0.40 and the AI ones over ~0.65, nudge the single anchor that’s misbehaving by ±0.05 — don’t touch the weights. That’s a five-minute calibration that needs no training set.
-- *What I changed:* I applied these rules in my stylometry.py and scoring.py
+- *What I changed:* I applied these rules in `stylometry.py` and `scoring.py`.
 
 ## Stretch Features
 
-**A third signal**
+### Stretch Feature 1 — Adding Binoculars as a third signal
 
-I added Binoculars score alongside perplexity and style. For inputs of at least
-100 words, when Binoculars is available, I use **35% perplexity(0.5 weight of 70%), 35% Binoculars(0.5 weight of 70%), and 30% style**. I average the two model scores first, then apply the 70/30
-model/style rule in `scoring.py::combine_signals`. For shorter inputs or
-unavailable Binoculars, I use **70% perplexity and 30% style**. . I do this as the paper on binoculars  mentioned it perfromed poorly for short test (i have used the short text threshold as 100 words), so any text above 100 words will use all three signals below that will use only two signals which is performing better for shrter texts.
+I added the Binoculars score alongside perplexity and style. For inputs of at
+least 100 words, when Binoculars is available, I use **35% perplexity, 35%
+Binoculars, and 30% style**. Each model signal receives half of the model's 70%
+weight. I average the two model scores first, then apply the 70/30 model/style
+rule in `scoring.py::combine_signals`.
+
+For shorter inputs or when Binoculars is unavailable, I use **70% perplexity
+and 30% style**. The Binoculars paper reports reduced performance on shorter
+inputs. I chose 100 words as the cutoff for this project and use two signals
+below that cutoff because they performed better on the project's shorter samples.
 
 
-**A GET /content/<id> endpoint**
+
+### Stretch Feature 2 — A GET /content/<id> endpoint
 
 I return the item's latest status and credential through `app.py::get_content`.
 The credential is `null` until certification; unknown IDs return HTTP `404`.
@@ -1036,6 +1107,8 @@ Response (`200 OK`):
 
 <a id="a-verified-human-path"></a>
 
+### Stretch Feature 3 — A verified-human path
+
 **A verified-human path**
 
 I ask for an earlier draft and an explanation through a `human_verification`
@@ -1052,7 +1125,7 @@ the latest human-verification request. For new submissions, `submission.status`
 and `decision.status` retain `decided`; I use `GET /content/<id>` for current status.
 If the original text is unavailable, `submission` is `null`. Unknown IDs return
 `404`; a known item with no human-verification request returns `409`.
-After reading the evidence, I send the reviewer decision:
+After reading the evidence, I send the reviewer's decision:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:5000/verification/review \
@@ -1135,7 +1208,7 @@ I will evaluate these settings against normal use and the attack tests.
      thresholds. Your numbers have to be liveable for the first and hostile to
      the second. -->
 
-**What a caller counts as:** I use a nonblank `creator_id`, falling back to the
+**How I identify a caller:** I use a nonblank `creator_id`, falling back to the
 IP address. Changing IDs bypasses a shared allowance; callers sharing an IP
 without IDs share one allowance. I count invalid submissions too.
 
@@ -1223,7 +1296,7 @@ that produced it:
 
 
 
-**Did it help, and how do I know:**
+**Did it help, and how do I know?**
 
 <!-- Widening the unsure band usually fixes one problem and creates another.
      Reporting that trade honestly is worth full credit. -->
