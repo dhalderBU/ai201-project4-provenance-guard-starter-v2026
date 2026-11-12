@@ -254,6 +254,22 @@ IP share its cap. Record `429` outcomes as rate-limit results rather than
 classification results. Audit entries identify the breached allowance through
 `rate_limit_key_type` and `rate_limit_key`.
 
+For the complete supplied attack set, keep both limits enabled and pace the
+normal inputs so they reach scoring or validation. This wrapper uses the
+starter's loader and sender, preserves the input bodies, waits ten seconds
+after its initial health check, and runs the flood family as a burst in a fresh
+minute window:
+
+```bash
+.venv/bin/python run_paced_attacks.py --set "/Users/debasishhalder/Downloads/attack_set 3" --output results/attack_set3_next_run --url http://127.0.0.1:5000 --health-wait 10
+```
+
+Use a new output directory for each run. It captures every response as it
+arrives, copies the exact input CSVs, checks health immediately after the last
+attack, and saves the audit excerpt. `responses.jsonl` contains raw outcomes;
+verdicts require reviewing them against each attack's target. The completed
+Milestone 2 run and reviewed report are linked from the README.
+
 No `429` at all? Either your limit is above 15 a minute, or rate limiting is
 still off. `GET /health` reports which.
 

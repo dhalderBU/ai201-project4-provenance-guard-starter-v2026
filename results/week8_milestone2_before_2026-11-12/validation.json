@@ -1,0 +1,63 @@
+{
+  "attack_count": 56,
+  "unique_attack_ids": 56,
+  "skipped_inputs": 0,
+  "http_status_counts": {
+    "200": 21,
+    "400": 32,
+    "429": 3
+  },
+  "verdict_counts": {
+    "BROKE": 15,
+    "HELD": 41
+  },
+  "family_counts": {
+    "evasion": {
+      "total": 10,
+      "held": 3,
+      "broke": 7
+    },
+    "false_positive": {
+      "total": 8,
+      "held": 2,
+      "broke": 6
+    },
+    "prompt_injection": {
+      "total": 6,
+      "held": 4,
+      "broke": 2
+    },
+    "malformed": {
+      "total": 20,
+      "held": 20,
+      "broke": 0
+    },
+    "flood_same_creator": {
+      "total": 12,
+      "held": 12,
+      "broke": 0
+    }
+  },
+  "audit_entries": 56,
+  "all_success_scores_match_response_and_audit": true,
+  "all_entries_have_required_fields": true,
+  "no_non_flood_rate_limit_rejections": true,
+  "input_copies_match_source_hashes": true,
+  "service_source_unchanged": true,
+  "selected_audit_attack_ids": [
+    "EV01",
+    "EV02",
+    "EV05",
+    "FP03",
+    "FP05",
+    "PI01",
+    "PI02",
+    "PI05",
+    "MF08",
+    "FL01_10"
+  ],
+  "pacing_tests": {
+    "command": ".venv/bin/python -m unittest -v test_attack_pacing",
+    "passed": 3
+  }
+}
