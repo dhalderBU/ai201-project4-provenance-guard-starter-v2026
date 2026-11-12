@@ -279,6 +279,37 @@ trace look exactly like a quiet afternoon.
 
 ---
 
+## Five criteria, three trials (unit 8)
+
+With the same service running on port 5000:
+
+```bash
+.venv/bin/python run_eval.py --label before
+```
+
+`scenarios.py` defines all five criteria using fixed inputs in
+`eval_samples/samples.json`. The runner makes three actual trials per criterion,
+including new submissions and appeals. It captures health, waits ten seconds,
+then paces 105 submissions at nine per 61-second window. Allow about twelve
+minutes. Other requests from your IP share the limit, so keep the service idle
+before and during the run. A 429 is recorded as a failed request; it is not
+silently retried. Leave the service and its settings unchanged between trials.
+
+Each run creates a new `results/run_<timestamp>_before/` directory containing
+`report.md`, `results.json`, streamed `responses.jsonl`, the audit excerpt,
+health checks, and snapshots of the source and inputs. The final health check
+follows the last trial immediately. Files are hashed before and after the run.
+Use `--output results/a_new_directory` to choose an unused output directory.
+After the separately documented improvement, use `--label after` with the
+same fixtures and targets.
+
+The source of each human and AI fixture is recorded in `eval_samples/README.md`.
+Only two human texts are personal writing; the other three carry HC3's human
+label. Verdicts retain the original targets in `criteria.md`, including its
+0.45 human cutoff, even though the current service uses 0.40.
+
+---
+
 ## Running it somewhere else (unit 9)
 
 Unit 9 asks you to deploy one of your systems. **Read this before you pick

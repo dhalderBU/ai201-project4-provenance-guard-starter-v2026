@@ -1727,47 +1727,411 @@ an unnecessary wait after a window has already expired. These tests simulate
 only the clock; the 56 recorded outcomes above came from the real HTTP service.
 See [the validation summary](results/week8_milestone2_before_2026-11-12/validation.json).
 
-The three-trial criterion evaluation and the measured improvement are the next
-milestones; their sections below remain separate from this attack-set run.
+The three-trial criterion evaluation appears below. The measured improvement
+remains a later milestone, separate from this baseline attack-set run.
 
 ---
 
 ## Run Log and Verdicts
 
-<!-- Your five criteria across three trials. `run_eval.py --label before`. -->
+**Milestone 3 — before the improvement, 12 November 2026.** All five original
+criteria were run three times against the service on port 5000. Every trial
+made new HTTP requests. No scores, weights, thresholds, validation rules, or
+limiter settings changed between trials or since the Milestone 2 attack run.
+
+```bash
+.venv/bin/python run_eval.py --label before --url http://127.0.0.1:5000 --output results/week8_milestone3_before_2026-11-12
+```
+
+`scenarios.py::SCENARIOS` defines the five scenarios; `run_eval.py::run_case`
+sends the requests and captures responses, and `run_eval.py::summarize`
+applies the targets from `criteria.md`. The runner paces submissions at nine
+per 61-second window so the shared IP allowance does not hide classification
+outcomes. This run made **105 submissions and 15 appeals**: submissions returned
+81 HTTP 200s and 24 HTTP 400s; all appeals returned HTTP 200. No 429, 500,
+non-JSON response, or retry occurred. The audit grew by **135 entries**: 81
+decisions, 24 rejections, 15 appeal requests, and 15 appeal results.
+
+The five human fixtures are my two existing personal paragraphs plus three
+human-labelled HC3 validation samples. The five AI fixtures use HC3’s AI
+labels. The HC3 samples are the first filenames in sorted order, selected
+before scoring. Dataset labels provide the authorship reference; only two
+pieces are my own writing. All texts are retained verbatim in
+[`eval_samples/samples.json`](eval_samples/samples.json), with the source and
+selection rules in [`eval_samples/README.md`](eval_samples/README.md).
+
+For criterion 3, the five expected labels were fixed before this run. A case
+counts as correct only when its response matches both that expected label
+and the original criterion’s score band. The original human cutoff remains
+0.45 in the criterion; the service still uses 0.40. This mismatch is tested
+and diagnosed below. Neither the target nor the configuration was rewritten.
+
+**Health before the run**, followed by a measured 10.010-second wait:
+
+```json
+{
+  "binoculars_loaded": false,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": false,
+  "detector_model": "gpt2",
+  "log_entries": 521,
+  "ok": true,
+  "rate_limiting": true
+}
+```
+
+**Health immediately after the final trial** (11:06:11 UTC):
+
+```json
+{
+  "binoculars_loaded": true,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": true,
+  "detector_model": "gpt2",
+  "log_entries": 656,
+  "ok": true,
+  "rate_limiting": true
+}
+```
+
+The three-trial run lasted from 10:54:59 to 11:06:11 UTC. Models were loaded
+on the first scoring request, which explains the change in the loaded flags.
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |
+| 1. False positive rate | At most 2/5 human pieces labelled AI | 0/5 AI | 0/5 AI | 0/5 AI | **MET** |
+| 2. AI minus human mean score | Mean gap >= 0.30 (5 AI + 5 human) | 0.509418 | 0.509418 | 0.509418 | **MET** |
+| 3. Correct labels | At least 4/5 correct labels | 4/5 | 4/5 | 4/5 | **MET** |
+| 4. Appeal process | 5/5 appeals satisfy the recorded process | 5/5 | 5/5 | 5/5 | **MET** |
+| 5. Complete and accurate audit entries | 10/10 requests logged in the required format | 6/10 | 6/10 | 6/10 | **MISSED** |
 
-**Real output from one trial**, pasted as text, naming the file and function
-that produced it:
+All three trials produced identical scores, labels, appeal evaluations, and
+verdicts. Content IDs, appeal IDs, creator IDs, timestamps, and durations
+naturally differ. Criterion 5 recorded **10/10 requests in every trial**; its
+6/10 result means four entries had the wrong creator-ID representation, not
+that four requests disappeared.
+
+Full requests, responses, checks, and all three trials are saved in the
+[`run report`](results/week8_milestone3_before_2026-11-12/report.md) and
+[`results.json`](results/week8_milestone3_before_2026-11-12/results.json).
+The [`audit excerpt`](results/week8_milestone3_before_2026-11-12/audit_excerpt.jsonl)
+contains all 135 entries; [`validation.json`](results/week8_milestone3_before_2026-11-12/validation.json)
+records the response/log matches, repeatability checks, and unchanged sources.
+
+**Real output from trial 1**
+
+The following excerpts retain the actual JSON response for one case per
+criterion and the runner’s metrics for that entire trial. The complete case
+lists remain in the linked report. Metrics and checks come from
+`run_eval.py::summarize`, `audit_checks`, and `appeal_checks`; `run_case`
+captures the HTTP responses without replacing them with expected results.
+
+**Criterion 1 — `app.py::submit`**
 
 ```json
-
+{
+  "criterion": 1,
+  "trial": 1,
+  "metrics": {
+    "requests": 5,
+    "all_submissions_scored": true,
+    "ai_labels": 0,
+    "human_labels": 5,
+    "unsure_labels": 0
+  },
+  "verdict": "MET",
+  "case": "own_1",
+  "http_status": 200,
+  "response": {
+    "combined_score": 0.248051339913131,
+    "confidence": 0.248051339913131,
+    "content_id": "c_725ce0645369",
+    "guess": "human",
+    "label": "human",
+    "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.",
+    "model_score": 0.0853,
+    "style_score": 0.6278044663771033
+  }
+}
 ```
 
-**Diagnoses**
+**Criterion 2 — `app.py::submit`**
 
-<!-- For each miss AND each broken attack: the stage and the mechanism.
+```json
+{
+  "criterion": 2,
+  "trial": 1,
+  "metrics": {
+    "requests": 10,
+    "all_submissions_scored": true,
+    "human_mean": 0.27512793623016096,
+    "ai_mean": 0.7845462862090351,
+    "gap": 0.5094183499788741
+  },
+  "verdict": "MET",
+  "case": "ai_00000113_00",
+  "http_status": 200,
+  "response": {
+    "combined_score": 0.7923010364991867,
+    "confidence": 0.7923010364991867,
+    "content_id": "c_b9154818daa9",
+    "guess": "ai",
+    "label": "ai",
+    "label_text": "Our checks suggest this text may have been generated by AI. This assessment can be wrong, and the writer can request a review.",
+    "model_score": 0.8852,
+    "style_score": 0.5755367883306223
+  }
+}
+```
 
-     Your service has five stages: the route, signal one, signal two, the
-     combining rule, and the label mapping.
+**Criterion 3 — `app.py::submit`**
 
-     Not a diagnosis:  "The evasion attacks got through."
-     A diagnosis:      "Four evasion inputs got through. All four had typos
-                        added to AI-generated text. My second signal measures
-                        word variety, and typos raise word variety — so it read
-                        them as more human. My combining rule weights that
-                        signal at 0.6, so it dragged the whole score down."
+```json
+{
+  "criterion": 3,
+  "trial": 1,
+  "metrics": {
+    "requests": 5,
+    "all_submissions_scored": true,
+    "correct": 4,
+    "labels_reached": [
+      "ai",
+      "human",
+      "unsure"
+    ],
+    "expected_label_matches": 5,
+    "criterion_band_matches": 4
+  },
+  "verdict": "MET",
+  "case": "coverage_3",
+  "http_status": 200,
+  "response": {
+    "combined_score": 0.4067944288261874,
+    "confidence": 0.4067944288261874,
+    "content_id": "c_62bc4d38ad46",
+    "guess": "unsure",
+    "label": "unsure",
+    "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.",
+    "model_score": 0.3474,
+    "style_score": 0.5453814294206247
+  },
+  "checks": {
+    "scored": true,
+    "expected_label": true,
+    "criterion_band": false
+  }
+}
+```
 
-     Look for a pattern. Five failures on one signal is one problem, not five. -->
+**Criterion 4 — `app.py::appeal → appeals.py::reassess`**
 
+```json
+{
+  "criterion": 4,
+  "trial": 1,
+  "metrics": {
+    "requests": 5,
+    "all_submissions_scored": true,
+    "passed": 5,
+    "failures": []
+  },
+  "verdict": "MET",
+  "case": "ai_00000113_00",
+  "http_status": 200,
+  "response": {
+    "appeal_id": "a_3c005797e5a1",
+    "content_id": "c_686fc7b2557f",
+    "evaluations": [
+      {
+        "combined_score": 0.7613347153322488,
+        "label": "ai",
+        "model_score": 0.8852,
+        "status": "scored",
+        "style_score": 0.5755367883306223,
+        "variant": "original"
+      },
+      {
+        "combined_score": 0.7417178802577131,
+        "label": "ai",
+        "model_score": 0.8585,
+        "status": "scored",
+        "style_score": 0.5665447006442826,
+        "variant": "without_first_sentence"
+      },
+      {
+        "combined_score": 0.7419168405460653,
+        "label": "ai",
+        "model_score": 0.8527,
+        "status": "scored",
+        "style_score": 0.5757421013651634,
+        "variant": "without_last_sentence"
+      }
+    ],
+    "label": "ai",
+    "label_text": "Our checks suggest this text may have been generated by AI. This assessment can be wrong, and the writer can request a review.",
+    "message": "Your appeal has been recorded. Your submission is marked for review. Due to the nature of the mathematical computation involved in arriving at the conclusion, it is possible that the text has been evaluated as AI-written even though it was written by a human. If that is the case, please request human re-evaluation and submit earlier versions of the work so it can be evaluated by a person.",
+    "review_type": "automatic",
+    "status": "under_review",
+    "votes": {
+      "ai": 3,
+      "human": 0,
+      "unsure": 0
+    },
+    "weights": {
+      "model": 0.6,
+      "style": 0.4
+    }
+  },
+  "status_readback": {
+    "content_id": "c_686fc7b2557f",
+    "credential": null,
+    "status": "under_review"
+  },
+  "checks": {
+    "accepted": true,
+    "under_review": true,
+    "status_readback": true,
+    "appeal_logged": true,
+    "result_logged": true,
+    "three_variants": true,
+    "weights": true,
+    "scored_with_60_40": true,
+    "majority": true,
+    "message": true
+  }
+}
+```
 
+**Criterion 5 — `app.py::submit`**
+
+```json
+{
+  "criterion": 5,
+  "trial": 1,
+  "metrics": {
+    "requests": 10,
+    "all_submissions_scored": false,
+    "passed": 6,
+    "failures": [
+      {
+        "case": "null_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      },
+      {
+        "case": "empty_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      },
+      {
+        "case": "whitespace_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      },
+      {
+        "case": "object_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      }
+    ]
+  },
+  "verdict": "MISSED",
+  "case": "object_creator",
+  "http_status": 400,
+  "response": {
+    "error": "bad_request",
+    "message": "Send JSON with a non-empty \"text\"."
+  },
+  "checks": {
+    "one_entry": true,
+    "timestamp": true,
+    "creator_id": false,
+    "controlled_rejection": true,
+    "rejection_format": true
+  },
+  "request": {
+    "text": "",
+    "creator_id": {
+      "name": "invalid"
+    }
+  },
+  "audit_entries": [
+    {
+      "combined_score": null,
+      "content_id": null,
+      "creator_id": {
+        "name": "invalid"
+      },
+      "event": "rejected",
+      "guess": null,
+      "http_status": 400,
+      "label": null,
+      "model_score": null,
+      "reason": "missing_or_invalid_text",
+      "status": "rejected",
+      "style_score": null,
+      "timestamp": "2026-11-12T11:04:08+00:00"
+    }
+  ]
+}
+```
+
+**Diagnoses and limits of the result**
+
+1. **False positives — MET.** Both personal paragraphs and all three HC3 human
+   samples received `human` in every trial, giving 0/5 false AI labels.
+   This small sample does not cancel the six false-positive failures from
+   Milestone 2. Those formal human texts exposed a different weakness.
+
+2. **Score spread — MET.** Each trial had a human mean of 0.275128 and an AI
+   mean of 0.784546, a gap of 0.509418. This is evidence for these ten fixed
+   texts, not a calibrated probability of authorship or an accuracy estimate
+   for all writing.
+
+3. **Correct labels — MET at 4/5, with one mapping discrepancy.** All five
+   expected sample labels appeared as intended, and all three label types
+   were reachable. However, the Tina Turner sample scored 0.406794 and was
+   labelled `unsure`. `scoring.py::score_to_label` uses
+   `config.HUMAN_THRESHOLD = 0.40`; criterion 3 instead places scores up to
+   0.45 in `human`. The failure is at the **label mapping/configuration
+   boundary**, not an unstable model score. That case was counted incorrect
+   against the original written range even though it matched the intended
+   `unsure` sample label.
+
+4. **Appeals — MET.** Each trial accepted five appeals, read back
+   `under_review`, and found both the request and reassessment in the log.
+   All three variants were scored, each combined score matched
+   `0.6 × model_score + 0.4 × style_score`, and votes matched the final label.
+   `appeals.py::text_variants` removes the first or last sentence using the
+   existing splitter. Human and AI majority outcomes occurred; AI outcomes
+   included the human-review warning. One variant per trial voted `unsure`, but no
+   appeal had an `unsure` majority, so that final-message branch was not
+   exercised by these five appeal fixtures.
+
+5. **Audit formatting — MISSED at 6/10 in all three trials.** Every request
+   left an entry, and successful decisions matched their responses and
+   included all ten required fields. The four failures were explicit
+   `null`, empty-string, whitespace-only, and object-valued creator IDs.
+   In `app.py::submit`, `payload.get("creator_id", "unknown")` supplies
+   `unknown` only when the key is absent. It passes present invalid values
+   unchanged to `audit.py::log_rejection`, which stores them unchanged.
+   This is a **route-to-audit normalization defect**. The limiter correctly
+   uses the IP allowance for those inputs, but that does not normalize the
+   audit’s creator field. Missing IDs already become `unknown`.
+
+The detailed diagnoses for all 15 broken attacks remain in **Attack Run —
+Before** and its linked reviewed report. No improvement has been applied yet;
+these measurements are the baseline for choosing and measuring the one
+permitted improvement in the later milestone.
+
+Validation: 32 focused harness, pacing, limiter, and audit API tests passed.
+All service files match the Milestone 2 source hashes, and the source and
+fixtures stayed unchanged throughout this run. The local checkpoint for
+Milestone 3 is `week8-milestone3-2026-11-12`.
 
 ---
 
@@ -1829,8 +2193,8 @@ that produced it:
        [x] Audit log with all nine fields, recording rejections too
        [x] The attack set run IN FULL, every input with an outcome
        [x] Ten audit log entries pasted as text
-       [ ] Five criteria across three trials
-       [ ] A diagnosis for every miss and every broken attack — stage AND mechanism
+       [x] Five criteria across three trials
+       [x] A diagnosis for every miss and every broken attack — stage AND mechanism
        [ ] One improvement, with Attack Run — After
        [ ] What's Still Broken, including the production trade
        [ ] At least four new commits

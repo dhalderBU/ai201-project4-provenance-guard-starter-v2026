@@ -1,0 +1,7 @@
+{
+  "command": ".venv/bin/python -m unittest test_eval_runner test_attack_pacing test_rate_limiting test_audit_api",
+  "result": "passed",
+  "tests_run": 32,
+  "scope": "Eight evaluation-harness checks, three pacing checks, and 21 limiter/audit API checks. Live models are exercised separately by the three-trial service run.",
+  "terminal_output": "................................\n----------------------------------------------------------------------\nRan 32 tests in 0.471s\n\nOK\n"
+}

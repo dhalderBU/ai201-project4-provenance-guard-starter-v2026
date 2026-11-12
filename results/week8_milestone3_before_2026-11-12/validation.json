@@ -1,0 +1,41 @@
+{
+  "criteria": 5,
+  "trials_each": 3,
+  "submit_count": 105,
+  "submit_status_counts": {
+    "200": 81,
+    "400": 24
+  },
+  "appeals": 15,
+  "appeal_status_counts": {
+    "200": 15
+  },
+  "audit_entries": 135,
+  "audit_event_counts": {
+    "decision": 81,
+    "appeal": 15,
+    "appeal_reassessment": 15,
+    "rejected": 24
+  },
+  "scores_and_labels_identical_across_trials": {
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true,
+    "5": true
+  },
+  "appeal_results_identical_across_trials": true,
+  "all_successes_match_audit": true,
+  "source_snapshots_match_hashes": true,
+  "service_unchanged_since_milestone2": true,
+  "readme_prefix_sha256": "dfbd4dcbde3f30049cac21f2e04547a3858b47678e3e40bf35a4196f59a1c9d3",
+  "met_criteria": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "missed_criteria": [
+    5
+  ]
+}

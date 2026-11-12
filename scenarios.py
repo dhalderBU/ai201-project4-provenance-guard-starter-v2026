@@ -1,118 +1,60 @@
+"""Five Unit 7 criteria, fixed inputs, and explicit targets for Unit 8.
+
+Fixtures are frozen in eval_samples/samples.json. Own writing is preserved
+verbatim; supplemental HC3 texts retain their dataset labels and provenance.
+No scenario is selected by its score in this evaluation.
 """
-What your test runs. ← UNIT 8, MILESTONE 3
+import json
+from pathlib import Path
 
-Each of your five criteria needs something run against it. A criterion about
-false positives needs your own writing. One about label coverage needs inputs
-across the score range. One about the appeal path needs a real content_id.
+SAMPLES = {item['id']: item for item in json.loads(
+    (Path(__file__).parent / 'eval_samples/samples.json').read_text(encoding='utf-8'))}
+HUMAN_IDS = ['own_1', 'own_2', 'human_00000000_02', 'human_00000051_02', 'human_00000362_02']
+AI_IDS = ['ai_00000113_00', 'ai_00000318_00', 'ai_00000552_00', 'ai_00001008_00', 'ai_00001495_00']
 
-Working that out is Milestone 3's first step, and this file is where you write
-it down. `run_eval.py` runs everything here three times.
 
-Two are filled in as examples. Replace them with what your criteria actually
-need — these are a shape, not a set.
+def text_case(sample_id, expected_label=None):
+    sample = SAMPLES[sample_id]
+    return {'id': sample_id, 'body': {'text': sample['text']},
+            'authorship': sample['label'],
+            'expected_label': expected_label or sample['label']}
 
-A scenario carries **either** of these:
-
-    "texts"   a list of strings. Each is sent as {"text": ..., "creator_id": ...}
-              with a creator_id made up for you. Use this for most criteria.
-
-    "bodies"  a list of whole request bodies, sent exactly as written. Use this
-              when the malformed request IS the point — empty text, no `text`
-              field at all, something enormous. A bad-input criterion needs it,
-              because you cannot express "the field is missing" as a string.
-"""
 
 SCENARIOS = [
-    {
-        "name": "my own writing",
-        "criterion": 1,
-        # ⚠️ PUT YOUR OWN WRITING HERE. Not AI text, not a sample from the web —
-        # things you actually wrote. This is the criterion that matters most and
-        # it's meaningless with someone else's prose.
-        "texts": [
-            "I am enjoying what I am learning withing the course AI201. This course is exposing me to lot different type of problems and each of the exercise is well thought off. Each of the excercises given in the assignement will make one think and will force one ot do lot of research before implementing the code. I am specially liking how we need to write the criteria and my whole way of thinking AI solution is changing. Now I am thinking for any solution how I can term the criteria soas the solution that I am building gives me predictab;le results.",
-            "Ai is oging to change peoples lives isn more than one way. There will be lot of positive outcome and at the same time there will be  lot of negative outcomes. There will be bad actors who will take advantage of the AI and cause damage to common people by stealing or by creating chaos. While tin areas like biomedical, pharmceutical and others like medical and surgical it will usher in a new world. Since Human labor will go down so cost will go down too. AI will touch peoples lives whether they are in villages or remote areas or in cities. This will be another major change  or revolution like industrial revolution",
-        ],
-    },
-    {
-        "name": "label coverage",
-        "criterion": 2,
-        # Inputs spread across your score range, so you can check all three
-        # labels are actually reachable.
-        "texts": [
-            "Salt is used on roads to help melt ice and snow and improve traction during the winter months. When it's cold outside, water can freeze on the roads and make them very slippery, which can be dangerous for cars and people. Salt helps to melt the ice and snow by lowering the freezing point of water, which means that it can help keep the roads clear and safe to travel on. \nThere are other options for melting ice and snow on roads, such as using chemicals like calcium chloride or magnesium chloride, or using mechanical methods like plows or sand. However, salt is often the most effective and affordable option for many communities, especially when it's used in combination with other methods. \nIt's important to note that while salt can be helpful for making roads safer during the winter, it can also have negative effects on the environment and on the cars themselves. Salt can cause corrosion on metal surfaces, including cars, and it can also harm plants and animals if it washes into nearby waterways. However, despite these potential downsides, many communities continue to use salt as a way to keep roads clear and safe during the winter.",
-            "They are one of the most compelling reasons to manage the livestock and food industry . Forget that they are nearly impossible to eliminate by cooking if they are in your foodstuffs . Forget the horrible , horrible way they kill . The only reason prions prolifferate is by feeding animal waste products back to your stock animals . Bovine spongiform , scrapie and CJD are all caused by eating an animals brain / spinal fluid . Surely this should not be happening ? People should have the right to trust their foodstuffs and should not be feeding dead animals back to other livestocks . That is what scares me .",
-            "`What's Love Got to Do With It' tells the harrowing story of Tina Turner's life and music, and her relationship with Ike Turner. The movie shows the violence and abuse she faced, and her struggles to break free to find success on her own.Tina found the strength to stand up to Ike. In a powerful scene towards the end of the movie  Ike slips past security into Tina's dressing room with a gun and Tina finds the inner strength to face him . The movie s  Angela Bassett as Tina and Laurence Fishburne as Ike, It  features the soundtrack of Tina Turners songs performed by Bassett and the movie also has a lot of great music in it too snd its a story of pain and courage, portraying Tina Turner's resilience and showcasing her incredible talent.",
-        ],
-    },
-    # A bad-input criterion looks like this. Uncomment and adjust if that's one
-    # of your five — these are raw request bodies, sent exactly as written.
-    #
-    # {
-    #     "name": "bad input",
-    #     "criterion": 3,
-    #     "bodies": [
-    #         {"text": "", "creator_id": "eval_bad_empty"},
-    #         {"creator_id": "eval_bad_missing"},          # no text field at all
-    #         {"text": "word " * 50000, "creator_id": "eval_bad_huge"},
-    #         {"text": None, "creator_id": "eval_bad_null"},
-    #     ],
-    # },
-
-    # TODO: add what your remaining criteria need.
-    #
-    # A criterion about the appeal path can't be tested by sending text alone;
-    # it needs a submission first and then an appeal against the content_id
-    # that came back. You'll need to test that one by hand, or extend this file
-    # and run_eval.py to do it. Saying which you did is part of the write-up.
+    {'criterion': 1, 'name': 'False positive rate', 'target': 'At most 2/5 human pieces labelled AI',
+     'cases': [text_case(key) for key in HUMAN_IDS]},
+    {'criterion': 2, 'name': 'AI minus human mean score', 'target': 'Mean gap >= 0.30 (5 AI + 5 human)',
+     'cases': [text_case(key) for key in HUMAN_IDS + AI_IDS]},
+    {'criterion': 3, 'name': 'Correct labels', 'target': 'At least 4/5 correct labels',
+     'cases': [text_case(key) for key in ['own_1', 'coverage_1', 'coverage_2', 'coverage_3', 'demo_ai']]},
+    {'criterion': 4, 'name': 'Appeal process', 'target': '5/5 appeals satisfy the recorded process',
+     'cases': [text_case(key) for key in ['own_1', 'own_2', 'ai_00000113_00', 'ai_00001495_00', 'coverage_1']]},
+    {'criterion': 5, 'name': 'Complete and accurate audit entries', 'target': '10/10 requests logged in the required format',
+     'cases': [
+         text_case('own_1'), text_case('ai_00000113_00'),
+         {'id': 'empty_text', 'body': {'text': ''}},
+         {'id': 'missing_text', 'body': {}},
+         {'id': 'list_text', 'body': {'text': ['not', 'a', 'string']}},
+         {'id': 'null_creator', 'body': {'text': '', 'creator_id': None}},
+         {'id': 'empty_creator', 'body': {'text': '', 'creator_id': ''}},
+         {'id': 'whitespace_creator', 'body': {'text': '', 'creator_id': '   '}},
+         {'id': 'object_creator', 'body': {'text': '', 'creator_id': {'name': 'invalid'}}},
+         {'id': 'missing_creator', 'body': {'text': ''}, 'omit_creator': True},
+     ]},
 ]
 
 
-def validate() -> list[str]:
-    """
-    Complain about anything malformed, before a long run rather than during.
-
-    A "bodies" scenario is deliberately exempt from the empty check — an empty
-    string is the whole point of a bad-input case, and refusing to run one
-    would make that criterion untestable.
-    """
+def validate():
     problems = []
-    for i, scenario in enumerate(SCENARIOS, 1):
-        if not scenario.get("name"):
-            problems.append(f"scenario {i} has no name")
-
-        texts = scenario.get("texts")
-        bodies = scenario.get("bodies")
-
-        if texts and bodies:
-            problems.append(
-                f"scenario {i} ('{scenario.get('name')}') has both texts and "
-                f"bodies — pick one"
-            )
-            continue
-
-        if bodies:
-            for j, body in enumerate(bodies, 1):
-                if not isinstance(body, dict):
-                    problems.append(
-                        f"scenario {i}, body {j} is not a dict — bodies are whole "
-                        f"request bodies, like {{'text': '', 'creator_id': 'x'}}"
-                    )
-            continue
-
-        if not texts:
-            problems.append(f"scenario {i} has no texts and no bodies")
-            continue
-
-        for j, text in enumerate(texts, 1):
-            if not str(text).strip():
-                problems.append(
-                    f"scenario {i}, text {j} is empty — if an empty submission is what "
-                    f"you're testing, use 'bodies' instead of 'texts'"
-                )
-            elif str(text).startswith("REPLACE ME"):
-                problems.append(
-                    f"scenario {i} ('{scenario.get('name')}'), text {j} is still "
-                    f"the placeholder"
-                )
+    if [s.get('criterion') for s in SCENARIOS] != [1, 2, 3, 4, 5]:
+        problems.append('Exactly five criteria, numbered 1 through 5, are required.')
+    for scenario, count in zip(SCENARIOS, [5, 10, 5, 5, 10]):
+        if len(scenario.get('cases', [])) != count:
+            problems.append(f"Criterion {scenario['criterion']} requires {count} cases.")
+        ids = [c['id'] for c in scenario['cases']]
+        if len(set(ids)) != len(ids):
+            problems.append(f"Criterion {scenario['criterion']} has duplicate case IDs.")
+        for case in scenario['cases']:
+            if not isinstance(case.get('body'), dict):
+                problems.append(f"{case['id']}: body must be a dictionary.")
     return problems
