@@ -2832,15 +2832,15 @@ The local checkpoint is `week8-milestone5-2026-11-12`; nothing was pushed.
 The nine remaining BROKE attacks and two missed criteria are retained below.
 The proposed next steps are future work, not changes made in this milestone.
 
-| Remaining finding | Stage and mechanism | What I would investigate or fix next |
-|---|---|---|
-| EV01, EV05 still return human | Signal one, signal two, combining rule: low model scores and the existing style contributions produce 0.264450 and 0.225572, below the unchanged 0.40 human cutoff. Raising only the AI cutoff cannot change these labels. | Use a separate, prospectively selected set of edited AI and varied human writing to assess the signal failure. |
-| EV02, EV06 still return unsure | Signal two and combining rule: high sentence-length spread and vocabulary diversity make style zero; the combined scores remain 0.416010 and 0.400890. | Compare matched original/edited texts to isolate how sentence splitting and lexical diversity affect the score. |
-| EV03, EV09 still return unsure | Signal one, signal two, combining rule: the 100-word inner blend and the whole-text style measurements leave combined scores 0.428137 and 0.490470. | Evaluate the blend and mixed-origin passages on held-out examples; an arithmetic check already shows that dropping Binoculars alone would not make these two AI-labelled. |
-| EV04 still returns unsure | Signal one, signal two, combining rule: model 0.6114 and style 0.5 still combine to 0.577980, now farther below the AI cutoff. | Test the unusual-vocabulary hypothesis against a matched control before changing a signal. |
-| PI01, PI02 still reach their human-label goal | Combining rule and label mapping: normal scoring yields 0.323750 and 0.143080. There is no evidence that the injected instructions gained authority. | Compare instruction-bearing and instruction-free controls; keep label-goal failure separate from instruction-following claims. |
-| Criterion 3 misses at 3/5 | Label mapping: the declared 0.80 threshold moves the 0.619604 AI fixture to unsure; the older 0.40/0.45 mismatch also remains. | Keep this original target and miss on record. Evaluate any later policy change explicitly instead of rewriting the oracle to manufacture a pass. |
-| Criterion 5 misses at 6/10 | Route: present invalid creator IDs are passed unchanged into the rejection log. | Normalize invalid IDs to `unknown` before logging and test the same ten request shapes. |
+| Remaining finding | Stage and mechanism | What I would investigate or fix next | Why I stopped here |
+|---|---|---|---|
+| EV01, EV05 still return human | Signal one, signal two, combining rule: low model scores and the existing style contributions produce 0.264450 and 0.225572, below the unchanged 0.40 human cutoff. Raising only the AI cutoff cannot change these labels. | Use a separate, prospectively selected set of edited AI and varied human writing to identify which signal change improves discrimination. | This needs new comparison data and a separate signal experiment; another cutoff guess would not explain the low scores. |
+| EV02, EV06 still return unsure | Signal two and combining rule: high sentence-length spread and vocabulary diversity make style zero; the combined scores remain 0.416010 and 0.400890. | Compare matched original/edited texts to isolate how sentence splitting and lexical diversity affect the score, then test the responsible feature. | Changing the splitter or style features would be a second improvement. Matched controls are needed before choosing one. |
+| EV03, EV09 still return unsure | Signal one, signal two, combining rule: the 100-word inner blend and the whole-text style measurements leave combined scores 0.428137 and 0.490470. | Evaluate the blend and mixed-origin passages on held-out examples; an arithmetic check already shows that dropping Binoculars alone would not make these two AI-labelled. | Removing Binoculars has no demonstrated fix for these failures, and changing the blend alongside the threshold would obscure attribution. |
+| EV04 still returns unsure | Signal one, signal two, combining rule: model 0.6114 and style 0.5 still combine to 0.577980, now farther below the AI cutoff. | Test the unusual-vocabulary hypothesis against a matched control before changing a signal. | The score explains the label, but the proposed vocabulary cause has not been isolated. I would not choose another model change from this one example. |
+| PI01, PI02 still reach their human-label goal | Combining rule and label mapping: normal scoring yields 0.323750 and 0.143080. There is no evidence that the injected instructions gained authority. | Compare instruction-bearing and instruction-free controls; keep label-goal failure separate from instruction-following claims. | An instruction filter would add a second behavior change without evidence that instruction following caused these labels. |
+| Criterion 3 misses at 3/5 in all three trials | Label mapping: the declared 0.80 threshold moves the 0.619604 AI fixture to unsure; the older 0.40/0.45 mismatch also remains. | Test a later label policy against independent human and AI samples, including the 0.40/0.45 boundary discrepancy, while retaining this original target and result. | Retuning after the after-run results or changing the oracle would hide the measured regression. The cost of the chosen threshold belongs in this submission. |
+| Criterion 5 misses at 6/10 in all three trials | Route: present invalid creator IDs are passed unchanged into the rejection log. | Normalize invalid IDs to `unknown` before logging and test the same ten request shapes. | This is a separate route fix. I deferred it to keep the threshold as the unit's one measured improvement; all requests are recorded, but four entries still violate the required ID format. |
 
 Other limits remain even where the attack policy said HELD: the human-reference
 family now abstains on all seven scored texts; short or non-Latin text can be
@@ -2853,6 +2853,12 @@ run plus three trials per criterion. That preserves a comparison attributable
 to one setting, including its costs. A later improvement should use a separate
 validation cohort before claiming that the new boundary generalizes.
 
+My next implementation priority would be the creator-ID normalization fix:
+its expected behavior is explicit and the existing ten-case test can verify
+it. The next classification experiment would use independent samples and
+matched edits, because the current results cannot tell me which new signal
+change would improve both false accusations and missed AI detections.
+
 **The trade I'd make if this ran for real:**
 
 I would favor fewer false accusations and make the larger unsure group
@@ -2860,6 +2866,57 @@ reviewable, accepting that more AI-generated text will go unflagged. Human
 writers face fewer incorrect AI labels, while reviewers and the platform bear
 more review work and missed detections; this detector alone should not decide
 a writer's credibility.
+
+
+## How I Used AI — Unit 8
+
+This adds to [How I Used AI](#how-i-used-ai) above; the earlier unit's write-up
+is preserved. I used Codex for substantial implementation, testing, analysis,
+and writing assistance throughout this unit, not just proofreading.
+
+I supplied the milestone requirements, requested limits on both creator ID
+and IP address, selected the downloaded `attack_set 3`, and asked for local
+Git checkpoints. Codex helped implement the limiter and audit instrumentation,
+prepare the paced attack runner and five-criterion evaluation, execute the
+local HTTP runs, inspect their saved responses and logs, and draft the
+verdicts, diagnoses, and before/after tables. The evaluation used two existing
+pieces of my writing plus three HC3 human-reference answers; it should not
+be described as five pieces of my own writing. The HC3 labels are dataset
+references, not independently established authorship.
+
+Codex proposed and implemented the one measured service improvement:
+raising `AI_THRESHOLD` from 0.60 to 0.80. That value was selected from known
+failures, so I report its results on these samples rather than claiming
+general accuracy. The reported scores and audit excerpts came from saved
+service responses. Automated comparisons checked unchanged inputs and scores,
+and the final focused suite passed 45 tests; these checks do not establish
+that the detector's authorship judgments are correct.
+
+The requested Claude opposing-verdict review was attempted but timed out
+without a response. The saved [opposing review](results/week8_milestone4_2026-11-12/opposing_review.md)
+is explicitly a Codex self-review, not an independent Claude review. AI
+assistance also produced the final remaining-failures write-up. I have kept
+the two missed criteria, nine broken attacks, sample limitations, and loss
+of AI detections visible instead of treating the improved attack total as
+proof that the whole system improved.
+
+
+## Submission Status — Unit 8
+
+The existing repository URL is
+[dhalderBU/ai201-project4-provenance-guard-starter-v2026](https://github.com/dhalderBU/ai201-project4-provenance-guard-starter-v2026).
+It is the configured `origin` for this project; no replacement repository
+was created. Use this same URL for the course submission.
+
+The local write-up now includes both result sets, all five criteria across
+three trials, verdicts and diagnoses, audit extracts including rejected
+requests, and a decision on each remaining failure. The
+[Milestone 6 review](results/week8_milestone6_2026-11-12/report.md) links the
+supporting evidence and records the final documentation checks.
+
+Checkpoint: `week8-milestone6-2026-11-12`, saved in local Git. Publication and
+course submission remain pending: the instruction to keep changes local is
+still in effect, and no course submission confirmation has been recorded.
 
 
 <!-- ═════════════════════════════════════════════════════════════════════
@@ -2889,8 +2946,10 @@ a writer's credibility.
        [x] A diagnosis for every miss and every broken attack — stage AND mechanism
        [x] One improvement, with Attack Run — After
        [x] What's Still Broken, including the production trade
+       [x] How I Used AI updated for Unit 8
        [x] At least four new commits
-       [ ] The SAME repository URL as last unit
+       [x] Existing repository URL recorded; no new repository created
+       [ ] Local work published and the SAME URL submitted to the course
 
      Do not delete and recreate this repository.
      ═════════════════════════════════════════════════════════════════════ -->

@@ -1,0 +1,135 @@
+{
+  "milestone": 6,
+  "scope": "Documentation and local checkpoint only; no live reruns or service changes.",
+  "baseline_commit": "fa645b2b4c916a63a7b1ea0da9e1d079fc20460e",
+  "readme_sha256": "bbd24e072c46299be34090a5a2d87ff4c861835c559a84e8e2479ce77ad30cde",
+  "readme_prefix_sha256": "dfbd4dcbde3f30049cac21f2e04547a3858b47678e3e40bf35a4196f59a1c9d3",
+  "readme_above_unit8_unchanged": true,
+  "all_prior_readme_evidence_sections_unchanged": true,
+  "service_runner_criteria_fixture_hashes_match_milestone5": true,
+  "test_appeals_sha256_unchanged": true,
+  "attack_rows_each": 56,
+  "attack_verdicts_before": {
+    "BROKE": 15,
+    "HELD": 41
+  },
+  "attack_verdicts_after": {
+    "BROKE": 9,
+    "HELD": 47
+  },
+  "remaining_broken_attack_ids_all_documented": [
+    "EV01",
+    "EV02",
+    "EV03",
+    "EV04",
+    "EV05",
+    "EV06",
+    "EV09",
+    "PI01",
+    "PI02"
+  ],
+  "missed_criteria_all_documented": [
+    3,
+    5
+  ],
+  "all_remaining_findings_have_stage_mechanism_next_action_and_stop_reason": true,
+  "criterion_verdicts_by_trial": {
+    "before": {
+      "1": [
+        "MET",
+        "MET",
+        "MET"
+      ],
+      "2": [
+        "MET",
+        "MET",
+        "MET"
+      ],
+      "3": [
+        "MET",
+        "MET",
+        "MET"
+      ],
+      "4": [
+        "MET",
+        "MET",
+        "MET"
+      ],
+      "5": [
+        "MISSED",
+        "MISSED",
+        "MISSED"
+      ]
+    },
+    "after": {
+      "1": [
+        "MET",
+        "MET",
+        "MET"
+      ],
+      "2": [
+        "MET",
+        "MET",
+        "MET"
+      ],
+      "3": [
+        "MISSED",
+        "MISSED",
+        "MISSED"
+      ],
+      "4": [
+        "MET",
+        "MET",
+        "MET"
+      ],
+      "5": [
+        "MISSED",
+        "MISSED",
+        "MISSED"
+      ]
+    }
+  },
+  "production_tradeoff_sentences": 2,
+  "audit_excerpts": {
+    "before": {
+      "entries": 10,
+      "includes_429": true,
+      "all_entries_pasted_verbatim": true,
+      "sha256": "0a0f4d3f4b9c02897488481e126a938903742040b449a56c27416776edd297f6"
+    },
+    "after": {
+      "entries": 10,
+      "includes_429": true,
+      "all_entries_pasted_verbatim": true,
+      "sha256": "427a03ece698521bf46c18de45691dced0b84569baee3d323d2a8461d5a978c4"
+    }
+  },
+  "attack_input_bytes_unchanged": true,
+  "unit8_ai_use_disclosure_added_below_protected_boundary": true,
+  "local_evidence_links_checked": [
+    "README.md",
+    "RUNNING.md",
+    "results/week8_milestone2_before_2026-11-12/report.md",
+    "results/week8_milestone2_before_2026-11-12/selected_audit_entries.jsonl",
+    "results/week8_milestone3_before_2026-11-12/report.md",
+    "results/week8_milestone4_2026-11-12/opposing_review.md",
+    "results/week8_milestone4_2026-11-12/report.md",
+    "results/week8_milestone5_2026-11-12/change.patch",
+    "results/week8_milestone5_2026-11-12/final_focused_tests.txt",
+    "results/week8_milestone5_2026-11-12/improvement_plan.json",
+    "results/week8_milestone5_2026-11-12/report.md",
+    "results/week8_milestone5_2026-11-12/source_comparison.json",
+    "results/week8_milestone5_2026-11-12/validation.json",
+    "results/week8_milestone5_attack_after_2026-11-12/report.md",
+    "results/week8_milestone5_attack_after_2026-11-12/selected_audit_entries.jsonl",
+    "results/week8_milestone5_eval_after_2026-11-12/report.md",
+    "results/week8_milestone6_2026-11-12/report.md",
+    "results/week8_milestone6_2026-11-12/validation.json"
+  ],
+  "checks_run_in_milestone6": "Documentation, saved evidence, source hashes, input bytes and Git diff checks; no tests or HTTP runs repeated.",
+  "existing_repository_url": "https://github.com/dhalderBU/ai201-project4-provenance-guard-starter-v2026",
+  "planned_local_tag": "week8-milestone6-2026-11-12",
+  "publication_status": "Not pushed: earlier user instruction to keep changes local remains in effect.",
+  "course_submission_status": "Pending; no submission receipt recorded.",
+  "external_claude_review_status": "Unavailable; prior attempt timed out. Saved opposing review is Codex self-review."
+}
