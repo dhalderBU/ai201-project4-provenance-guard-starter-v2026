@@ -1,0 +1,20 @@
+test_week8_limiter_is_enabled_even_with_a_stale_environment_override (test_rate_limiting.RateLimitConfigTests.test_week8_limiter_is_enabled_even_with_a_stale_environment_override) ... ok
+test_creator_ids_have_separate_allowances (test_rate_limiting.RateLimitTests.test_creator_ids_have_separate_allowances) ... ok
+test_daily_limit_survives_minute_resets_and_expires (test_rate_limiting.RateLimitTests.test_daily_limit_survives_minute_resets_and_expires) ... ok
+test_disabled_limiter_allows_more_than_daily_limit (test_rate_limiting.RateLimitTests.test_disabled_limiter_allows_more_than_daily_limit) ... ok
+test_exceeding_minute_limit_returns_json_429_and_logs_rejection (test_rate_limiting.RateLimitTests.test_exceeding_minute_limit_returns_json_429_and_logs_rejection) ... ok
+test_malformed_requests_count_without_crashing (test_rate_limiting.RateLimitTests.test_malformed_requests_count_without_crashing) ... ok
+test_missing_or_invalid_creator_uses_ip_address (test_rate_limiting.RateLimitTests.test_missing_or_invalid_creator_uses_ip_address) ... ok
+test_ping_does_not_consume_submission_allowance (test_rate_limiting.RateLimitTests.test_ping_does_not_consume_submission_allowance) ... ok
+test_flood_logs_each_decision_and_each_rejection_without_extra_inference (test_audit_api.AuditApiTests.test_flood_logs_each_decision_and_each_rejection_without_extra_inference) ... ok
+test_insufficient_inputs_record_the_stage_and_any_available_score (test_audit_api.AuditApiTests.test_insufficient_inputs_record_the_stage_and_any_available_score) ... ok
+test_invalid_json_and_non_objects_are_logged_before_scoring (test_audit_api.AuditApiTests.test_invalid_json_and_non_objects_are_logged_before_scoring) ... ok
+test_missing_empty_or_non_string_text_is_logged (test_audit_api.AuditApiTests.test_missing_empty_or_non_string_text_is_logged) ... ok
+test_three_decisions_round_trip_with_scores_labels_and_current_status (test_audit_api.AuditApiTests.test_three_decisions_round_trip_with_scores_labels_and_current_status) ... ok
+test_unavailable_detector_leaves_evidence_without_changing_error_behavior (test_audit_api.AuditApiTests.test_unavailable_detector_leaves_evidence_without_changing_error_behavior) ... ok
+test_flood_text_meets_existing_style_requirements (test_audit_api.FloodFixtureTests.test_flood_text_meets_existing_style_requirements) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.281s
+
+OK

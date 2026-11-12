@@ -1227,60 +1227,341 @@ record of draft review, separate from the automated authorship label.
 
 ## Rate Limiting
 
-I limit `POST /submit` to **9 requests per minute and 400 per day** in
-`config.py`. I enable limiting by default; `AI201_RATE_LIMITS=0` disables it.
+### Milestone 1 — Limit and audit log
+
+`POST /submit` has an active `@limiter.limit(...)` decorator. My settings in
+`config.py` are:
+
+```python
+RATE_LIMITING_ENABLED = True
+RATE_LIMIT_PER_MINUTE = 9
+RATE_LIMIT_PER_DAY = 400
+```
+
+**Why these numbers:** Nine requests per minute gives a an author to submit multiple pieces  which is valid case but beyond that  it could be used by bad actors.
+
+**How I identify a caller:** I apply the same limits independently to the
+IP address and to a nonblank `creator_id`: 9 requests per minute and 400 per day
+for each. Every request is checked against the IP allowance, including requests
+with missing or invalid creator IDs. A valid creator ID also has its own
+allowance across IP addresses. Exceeding either allowance returns `429`.
+
+This milestone extends the existing per-creator stretch feature with an IP
+limit that always applies. Changing creator IDs on one IP no longer creates
+fresh capacity. Writers sharing an IP also share its allowance, even with
+different IDs; this is the tradeoff of enforcing the same cap on both. Creator
+IDs remain client-supplied and unauthenticated.
+
+Every attempt, including invalid submissions and rate-limit rejections, counts
+against its IP allowance and, when present, its valid creator allowance. A rejected request receives
+HTTP `429`, a JSON error, and a `Retry-After` header. The rejection is logged
+before inference. `/ping`, `/health`, and `/log` do not consume the `/submit`
+allowance. Counters use `memory://`, so restarting the process resets them;
+multiple processes would not share these counts.
+
+`RATE_LIMITING_ENABLED` is a Boolean for these Week 8 executions. Restart the
+service after a configuration change and check that `/health` reports
+`"rate_limiting": true`.
+
+**Recorded run — November 12, 2026, 02:10 America/Los_Angeles:** The Flask service is
+already running on port 5000. I used this order: health check, wait ten seconds,
+attack, then an immediate health check.
+
+**Before the attack:**
 
 ```bash
-AI201_RATE_LIMITS=1 .venv/bin/python app.py
+curl -sS http://127.0.0.1:5000/health
 ```
 
-I return HTTP `429` with a JSON error and `Retry-After` when either limit is
-exceeded, and log the rejection before scoring. Other routes do not use this
-allowance. My in-memory counters reset on restart and are separate per process.
+Actual response:
 
-**Why those numbers and not others:**
-I allow room for revisions while limiting bursts and daily automated use.
-I will evaluate these settings against normal use and the attack tests.
-
-<!-- Think about two people: a real writer submitting their own work a few
-     times an hour, and a script sending a thousand variations to map your
-     thresholds. Your numbers have to be liveable for the first and hostile to
-     the second. -->
-
-**How I identify a caller:** I use a nonblank `creator_id`, falling back to the
-IP address. Changing IDs bypasses a shared allowance; callers sharing an IP
-without IDs share one allowance. I count invalid submissions too.
-
-**Rate-limit evidence:** I still need to record this run. The 10th request from
-the same caller within one minute exceeds the minute limit and returns HTTP `429`.
-
-<!-- python run_attacks.py --flood 25 -->
-
+```json
+{
+  "binoculars_loaded": false,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": false,
+  "detector_model": "gpt2",
+  "log_entries": 449,
+  "ok": true,
+  "rate_limiting": true
+}
 ```
 
+I waited ten seconds after receiving that response, then ran the flood:
+
+```bash
+sleep 10
+.venv/bin/python run_attacks.py --flood 15 --url http://127.0.0.1:5000 --creator week8_m1_dual_limit_101030
 ```
+
+**Attack output:**
+
+```text
+200 200 200 200 200 200 200 200 200 429 429 429 429 429 429
+```
+
+**Immediately after the attack returned the `429` responses:**
+
+```bash
+curl -sS http://127.0.0.1:5000/health
+```
+
+Actual response:
+
+```json
+{
+  "binoculars_loaded": true,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": true,
+  "detector_model": "gpt2",
+  "log_entries": 464,
+  "ok": true,
+  "rate_limiting": true
+}
+```
+
+The measured pause was 10.002 seconds. The second health request was
+started immediately after the attack command finished, with no intervening
+requests. Rate limiting stayed enabled. The audit count increased from
+449 to 464: nine decisions and six rejected requests. The model-loaded
+flags changed from `false` to `true` because the submissions loaded the models.
+
+After that second health check, I sent another valid submission from the same
+IP using a different creator ID. It also returned `429`; its audit entry records
+`rate_limit_key_type: "ip_address"` and `rate_limit_key: "127.0.0.1"`.
+Changing the creator ID therefore did not bypass the exhausted IP allowance.
+
+The [flood report](results/flood_2026-11-12_0210.md),
+[captured attack output](results/week8_milestone1_2026-11-12/flood_ip_and_creator_limits_stdout.txt),
+and [health responses, timing, and audit evidence](results/week8_milestone1_2026-11-12/dual_limits_health_checks.json)
+preserve this run. To repeat from a fresh minute allowance, wait for the IP's
+minute window to expire; changing the creator ID is not enough. The ten-second
+pause above is the requested test sequence, not the minute-window reset time.
+
+The starter flood paragraph had two sentences and fewer than 40 words, which
+failed the existing style-input requirement. I extended only that synthetic
+flood paragraph to 50 words and 4 sentences so the test exercises successful
+submissions followed by rate-limit rejections. The application's short-text
+validation is unchanged: the style signal still requires at least three
+sentences and 40 regex-tokenized words. I did not add a 50-word cutoff.
+
+### Complete audit entries
+
+Successful `/submit` decisions record all nine required fields:
+
+| Field | What a reader can reconstruct |
+|---|---|
+| `timestamp` | When the event occurred, in UTC. |
+| `content_id` | Which saved submission the decision belongs to. |
+| `creator_id` | The creator value supplied with the request, or `unknown` if absent. |
+| `guess` | The detector's `human`, `unsure`, or `ai` guess. |
+| `model_score` | The model component actually used in the decision. |
+| `style_score` | The style component actually used in the decision. |
+| `combined_score` | The weighted result used to choose the label. |
+| `label` | The label given to the caller. |
+| `status` | The state at that event, such as `decided` or `rejected`. |
+
+The log is append-only: later events do not rewrite earlier decisions.
+`GET /content/<id>` returns the current status of an accepted submission.
+
+`audit.log_rejection` now uses the same nine-field shape and adds `event`,
+`reason`, and the HTTP status supplied by the route. Values that do not exist
+are `null`, rather than invented scores or labels. If the model ran before the
+style check rejected a request, its available score is retained while the style
+and combined scores stay `null`.
+
+The route now logs invalid JSON or a non-object body, missing/invalid text,
+insufficient model input, insufficient style input, and an unavailable detector.
+The existing `429` handler logs every rate-limit rejection with the limit that
+was exceeded. It now also records these three fields:
+
+| Field | What it records |
+|---|---|
+| `ip_address` | The caller's address as seen by Flask; local requests use `127.0.0.1`. |
+| `rate_limit_key` | The creator ID or IP address whose allowance caused the rejection. |
+| `rate_limit_key_type` | `creator_id` or `ip_address`, identifying the breached allowance. |
+
+The handler obtains the key and its type from the limit that actually failed.
+A valid creator ID does not imply that the creator allowance caused the
+rejection: the IP allowance can be exceeded first. If both allowances are
+exceeded, the entry identifies the one reported by Flask-Limiter. The IP and
+creator counters use separate scopes, so a creator ID that looks like an IP
+address does not cause double counting. Both minute and daily counters are
+updated even when another applicable allowance is exhausted.
+
+Historical entries remain unchanged. The following check records the earlier
+IP-logging implementation, before the always-on IP allowance was added.
+
+**Earlier IP-logging check on port 5000:** A new creator flood returned nine `200`s
+and six `429`s. Requests with neither a creator ID nor text returned nine `400`s
+for missing text, then a `429` against the IP allowance. Both rejection types
+recorded `127.0.0.1`; the key type showed which allowance was used. See the
+[recorded responses and audit entries](results/week8_milestone1_2026-11-12/ip_logging_verification.json).
+
+This is the actual IP-fallback rejection from that check:
+
+```json
+{
+  "combined_score": null,
+  "content_id": null,
+  "creator_id": "unknown",
+  "event": "rejected",
+  "guess": null,
+  "http_status": 429,
+  "ip_address": "127.0.0.1",
+  "label": null,
+  "limit": "9 per 1 minute",
+  "model_score": null,
+  "rate_limit_key": "127.0.0.1",
+  "rate_limit_key_type": "ip_address",
+  "reason": "rate_limited",
+  "status": "rejected",
+  "style_score": null,
+  "timestamp": "2026-11-12T10:01:22+00:00"
+}
+```
+
+**Three submissions read back through `/log`:** Each returned `200`, and its
+content ID, both signal scores, combined score, guess, and label matched the
+persisted entry. Scores below are rounded for display; the captured JSON retains
+full precision.
+
+| Sample | Content ID | Model | Style | Combined | Label |
+|---|---|---|---|---|---|
+| `samples/clearly_ai.json` | `c_c3446ccf997c` | 0.754400 | 0.305081 | 0.619604 | `ai` |
+| `samples/clearly_human.json` | `c_0f9f8c197028` | 0.444500 | 0.115076 | 0.345673 | `human` |
+| `samples/borderline.json` | `c_5fa3617d03d3` | 0.348900 | 0.324564 | 0.341599 | `human` |
+
+I also submitted a request with a creator ID but no `text`. It returned `400`
+and appeared in `/log` with reason `missing_or_invalid_text`.
+The initial verification used a temporary server on port 5001 and appended
+19 entries: 12 decisions and seven rejections. All 19 include the nine required
+fields. That original evidence remains in
+[the audit excerpt](results/week8_milestone1_2026-11-12/audit_excerpt.jsonl) and
+[the response/log comparison](results/week8_milestone1_2026-11-12/verification.json).
+An earlier successful port-5000 repeat added 15 more entries, recorded separately
+in [its audit excerpt](results/week8_milestone1_2026-11-12/audit_port5000_excerpt.jsonl).
+The earlier report is retained as historical evidence; current commands use 5000.
+
+**Representative entries, copied from the live log:** a decision, a missing-text
+rejection, and a rate-limit rejection.
+
+```jsonl
+{"binoculars_score": 0.5973, "binoculars_used": false, "combined_score": 0.6196043276276597, "confidence": 0.6196043276276597, "content_id": "c_c3446ccf997c", "creator_id": "week8_m1_20261112_roundtrip", "guess": "ai", "label": "ai", "label_text": "Our checks suggest this text may have been generated by AI. This assessment can be wrong, and the writer can request a review.", "model_score": 0.7544, "perplexity_score": 0.7544, "status": "decided", "style_score": 0.3050810920921994, "timestamp": "2026-11-12T09:33:38+00:00", "word_count": 91}
+{"combined_score": null, "content_id": null, "creator_id": "week8_m1_20261112_missing_text", "event": "rejected", "guess": null, "http_status": 400, "label": null, "model_score": null, "reason": "missing_or_invalid_text", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T09:33:38+00:00"}
+{"combined_score": null, "content_id": null, "creator_id": "week8_m1_20261112_flood", "event": "rejected", "guess": null, "http_status": 429, "label": null, "limit": "9 per 1 minute", "model_score": null, "reason": "rate_limited", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T09:33:51+00:00"}
+```
+
+### Milestone 1 verification and baseline
+
+The 21 focused tests passed, including the IP and creator allowance checks:
+
+```bash
+.venv/bin/python -m unittest -v test_rate_limiting test_audit_api
+```
+
+They cover the same minute and daily caps for both IPs and creators, expiry,
+changing creator IDs on one IP, one creator using different IPs, missing or
+invalid creator IDs, independent counter scopes, malformed requests,
+`Retry-After`, rejected requests skipping inference, and recording the actual
+breached allowance through `/log`.
+The daily-limit test advances a simulated clock; the 15-request flood above
+uses the real HTTP service and real model inference.
+See [the test output](results/week8_milestone1_2026-11-12/tests_ip_and_creator_limits.txt).
+
+For Week 8, the working baseline is GPT-2 with DistilGPT-2, a 100-word gate,
+and a 50/50 perplexity/Binoculars blend above that gate. Below it, the model
+component uses perplexity alone. The outer model/style weights are 70/30,
+with human at or below 0.4 and AI at or above 0.6. MATTR uses a 50-word window
+and anchors 0.68/0.82. These settings are recorded in the
+[baseline snapshot](results/week8_milestone1_2026-11-12/baseline.json).
+
+Hashes confirm that `detector.py`, `binoculars_signal.py`, `scoring.py`, and
+`stylometry.py` did not change during this milestone. The three real sample
+scores and labels exactly match their values before the logging changes.
+This milestone adds the measurement instruments; the declared detector
+improvement and its before/after attack comparison remain for later milestones.
 
 ---
 
 ## Attack Run — Before
 
-<!-- Every attack with its outcome and a held-or-broke mark.
-     `run_attacks.py --label before` produces the table. -->
+**Evidence scope:** The saved results cover the 15-request Milestone 1 flood
+and one follow-up request with a different creator ID on the same IP. I reviewed
+those existing results without sending any new requests.
 
+The supplied set in `Downloads/attack_set` contains 32 text attacks and 24
+request attacks. I found no saved full-set report or matching text submissions.
+Its **56 inputs remain unassessed**; the full-attack-set requirement is not yet
+complete. The results below must not be interpreted as passing that set.
 
+### Verdicts for the completed flood checks
 
-**Ten audit log entries from the run**
+For these rate-limit checks, **HELD** means a request within the nine-request
+allowance was accepted, or a request exceeding the shared IP allowance was
+rejected with `429`. A changed creator ID must not bypass that IP allowance.
+The labels below are recorded detector outputs; HELD does not claim that those
+authorship labels were correct.
 
-<!-- Choose entries that show the interesting failures, not the ten easiest. -->
+**Counts for the recorded checks: 16 HELD, 0 BROKE.**
 
-```json
+| Request | Expected HTTP | Actual HTTP | Model | Style | Combined | Label | Verdict | Diagnosis |
+|---|---|---|---|---|---|---|---|---|
+| FLOOD-01 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-02 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-03 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-04 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-05 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-06 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-07 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-08 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-09 | 200 | 200 | 0.255900 | 0.239048 | 0.250845 | human | HELD | Within the first nine requests; accepted and scored. |
+| FLOOD-10 | 429 | 429 | — | — | — | — | HELD | Minute IP allowance exhausted; rejected before inference. |
+| FLOOD-11 | 429 | 429 | — | — | — | — | HELD | Minute IP allowance exhausted; rejected before inference. |
+| FLOOD-12 | 429 | 429 | — | — | — | — | HELD | Minute IP allowance exhausted; rejected before inference. |
+| FLOOD-13 | 429 | 429 | — | — | — | — | HELD | Minute IP allowance exhausted; rejected before inference. |
+| FLOOD-14 | 429 | 429 | — | — | — | — | HELD | Minute IP allowance exhausted; rejected before inference. |
+| FLOOD-15 | 429 | 429 | — | — | — | — | HELD | Minute IP allowance exhausted; rejected before inference. |
+| NEW-ID-01 | 429 | 429 | — | — | — | — | HELD | A new creator ID still shares the exhausted IP allowance. |
 
+Status codes come from the saved runner output and follow-up response. Scores
+and labels come from the matching audit entries and are rounded here for
+readability. A dash means no score or label was produced before rejection.
+The [saved evidence review](results/week8_milestone1_2026-11-12/saved_flood_verdicts.md)
+and [full-precision verdict records](results/week8_milestone1_2026-11-12/saved_flood_verdicts.json)
+link this table to the original run.
+
+**Ten actual audit entries from the completed checks**
+
+The selection includes seven flood/probe entries showing allowed requests,
+the first and later limit rejections, and the changed-creator rejection. The
+remaining three show an AI-labelled decision, a human-labelled decision, and
+a missing-text rejection. They are copied from `logs/audit.jsonl`; they are not
+presented as evidence from the unassessed 56-input set. Repeated rejection rows
+represent separate requests recorded in the same second.
+
+```jsonl
+{"binoculars_score": 0.027, "binoculars_used": false, "combined_score": 0.25084450583328055, "confidence": 0.25084450583328055, "content_id": "c_7a5294e42845", "creator_id": "week8_m1_dual_limit_101030", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.2559, "perplexity_score": 0.2559, "status": "decided", "style_score": 0.23904835277760178, "timestamp": "2026-11-12T10:10:44+00:00", "word_count": 50}
+{"binoculars_score": 0.027, "binoculars_used": false, "combined_score": 0.25084450583328055, "confidence": 0.25084450583328055, "content_id": "c_16168609f4bd", "creator_id": "week8_m1_dual_limit_101030", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.2559, "perplexity_score": 0.2559, "status": "decided", "style_score": 0.23904835277760178, "timestamp": "2026-11-12T10:10:44+00:00", "word_count": 50}
+{"binoculars_score": 0.027, "binoculars_used": false, "combined_score": 0.25084450583328055, "confidence": 0.25084450583328055, "content_id": "c_d6118f3d668f", "creator_id": "week8_m1_dual_limit_101030", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.2559, "perplexity_score": 0.2559, "status": "decided", "style_score": 0.23904835277760178, "timestamp": "2026-11-12T10:10:44+00:00", "word_count": 50}
+{"combined_score": null, "content_id": null, "creator_id": "week8_m1_dual_limit_101030", "event": "rejected", "guess": null, "http_status": 429, "ip_address": "127.0.0.1", "label": null, "limit": "9 per 1 minute", "model_score": null, "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "reason": "rate_limited", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T10:10:44+00:00"}
+{"combined_score": null, "content_id": null, "creator_id": "week8_m1_dual_limit_101030", "event": "rejected", "guess": null, "http_status": 429, "ip_address": "127.0.0.1", "label": null, "limit": "9 per 1 minute", "model_score": null, "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "reason": "rate_limited", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T10:10:44+00:00"}
+{"combined_score": null, "content_id": null, "creator_id": "week8_m1_dual_limit_101030", "event": "rejected", "guess": null, "http_status": 429, "ip_address": "127.0.0.1", "label": null, "limit": "9 per 1 minute", "model_score": null, "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "reason": "rate_limited", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T10:10:44+00:00"}
+{"combined_score": null, "content_id": null, "creator_id": "week8_m1_dual_limit_101030_different_creator", "event": "rejected", "guess": null, "http_status": 429, "ip_address": "127.0.0.1", "label": null, "limit": "9 per 1 minute", "model_score": null, "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "reason": "rate_limited", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T10:10:44+00:00"}
+{"binoculars_score": 0.5973, "binoculars_used": false, "combined_score": 0.6196043276276597, "confidence": 0.6196043276276597, "content_id": "c_c3446ccf997c", "creator_id": "week8_m1_20261112_roundtrip", "guess": "ai", "label": "ai", "label_text": "Our checks suggest this text may have been generated by AI. This assessment can be wrong, and the writer can request a review.", "model_score": 0.7544, "perplexity_score": 0.7544, "status": "decided", "style_score": 0.3050810920921994, "timestamp": "2026-11-12T09:33:38+00:00", "word_count": 91}
+{"binoculars_score": 0.2106, "binoculars_used": false, "combined_score": 0.3456727963525836, "confidence": 0.3456727963525836, "content_id": "c_0f9f8c197028", "creator_id": "week8_m1_20261112_roundtrip", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.4445, "perplexity_score": 0.4445, "status": "decided", "style_score": 0.11507598784194532, "timestamp": "2026-11-12T09:33:38+00:00", "word_count": 95}
+{"combined_score": null, "content_id": null, "creator_id": "week8_m1_20261112_missing_text", "event": "rejected", "guess": null, "http_status": 400, "label": null, "model_score": null, "reason": "missing_or_invalid_text", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T09:33:38+00:00"}
 ```
 
-**The single worst outcome** — the one I'd least want to explain to a writer
-whose work got caught by it:
+**The single worst observed outcome within these checks:** A fresh creator ID
+received `429` because its IP had already exhausted the allowance. The limiter
+behaved as configured, but a real writer sharing that IP would also be blocked
+before their text could be assessed. The cause is the shared IP counter, not a
+signal score or label threshold. This availability tradeoff is visible in
+`NEW-ID-01`; the log identifies the breached IP allowance.
 
-
+No worst false-positive or evasion outcome can be selected for the full attack
+set without its recorded results. That part of the milestone remains pending.
 
 ---
 
@@ -1376,11 +1657,11 @@ that produced it:
 
      SUBMISSION CHECKLIST — unit 8
 
-       [ ] Rate limiting on /submit, with your numbers justified
-       [ ] The pasted run of status codes showing 429
-       [ ] Audit log with all nine fields, recording rejections too
+       [x] Rate limiting on /submit, with your numbers justified
+       [x] The pasted run of status codes showing 429
+       [x] Audit log with all nine fields, recording rejections too
        [ ] The attack set run IN FULL, every input with an outcome
-       [ ] Ten audit log entries pasted as text
+       [x] Ten audit log entries pasted as text
        [ ] Five criteria across three trials
        [ ] A diagnosis for every miss and every broken attack — stage AND mechanism
        [ ] One improvement, with Attack Run — After

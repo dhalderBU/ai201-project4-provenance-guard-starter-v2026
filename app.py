@@ -31,6 +31,7 @@ Routes:
 import uuid
 
 from flask import Flask, jsonify, request
+from flask_limiter.util import get_remote_address
 
 import audit
 import config
@@ -46,8 +47,8 @@ def verification_error(exc):
 
 
 # ── Rate limiting — UNIT 8 ────────────────────────────────────────────────────
-# Enabled by default. The /submit decorator applies both limits from config.py.
-# AI201_RATE_LIMITS=0 disables limiting and leaves the route untouched.
+# The /submit decorators apply the same minute/day limits to IP and creator ID.
+# RATE_LIMITING_ENABLED controls whether the limiter is installed at startup.
 #
 # The storage backend is preconfigured, which stops Flask-Limiter printing a
 # warning on every start. In-memory is right for one laptop and wrong for
@@ -64,36 +65,28 @@ class _LimiterOff:
         return lambda view: view
 
 
+def creator_rate_limit_key():
+    """Return a valid creator ID, or an empty key to skip only its creator limit."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return ""
+    creator = payload.get("creator_id")
+    return creator if isinstance(creator, str) and creator.strip() else ""
+
+
 limiter = _LimiterOff()
 if config.RATE_LIMITING_ENABLED:
     from flask_limiter import Limiter
-    from flask_limiter.util import get_remote_address
-
-    def rate_limit_key():
-        """
-        Who a request counts against.
-
-        Falling back to the caller's address is the easy version. Unit 8's
-        stretch asks about per-creator limits instead — and the difference
-        matters: one script can look like a thousand callers, and one household
-        can look like one.
-        """
-        payload = request.get_json(silent=True)
-        # A body that parses as JSON but isn't an object — a bare list or
-        # string — has no .get. Without this guard the key function raises
-        # BEFORE the route runs, and a malformed request becomes a 500 that
-        # looks like your handler crashed when your handler never ran.
-        if not isinstance(payload, dict):
-            return get_remote_address()
-        creator = payload.get("creator_id")
-        return creator if isinstance(creator, str) and creator.strip() else get_remote_address()
 
     limiter = Limiter(
-        key_func=rate_limit_key,
+        key_func=get_remote_address,
         app=app,
         storage_uri=config.RATE_LIMIT_STORAGE,
         default_limits=[],
         headers_enabled=True,
+        # Count the request against both identities and both windows, even
+        # when one allowance is already exhausted.
+        fail_on_first_breach=False,
     )
 
     @app.errorhandler(429)
@@ -110,6 +103,10 @@ if config.RATE_LIMITING_ENABLED:
             creator_id=payload.get("creator_id", "unknown"),
             reason="rate_limited",
             limit=str(exc.description),
+            http_status=429,
+            ip_address=get_remote_address(),
+            rate_limit_key=exc.limit.key_func(),
+            rate_limit_key_type=exc.limit.scope,
         )
         return jsonify({
             "error": "rate_limited",
@@ -159,10 +156,7 @@ def health():
         "ok": True,
         "detector_model": config.DETECTOR_MODEL,
         "detector_loaded": loaded,
-        "device_setting": config.INFERENCE_DEVICE,
-        "inference_device": str(detector._model.device) if loaded else None,
         # ***deb..start stretch feature*** binocular***
-        "binoculars_enabled": config.BINOCULARS_ENABLED,
         "binoculars_performer": binoculars_performer,
         "binoculars_loaded": binoculars_loaded,
         # ***deb ..end of stretch feature*** binocular***
@@ -174,7 +168,17 @@ def health():
 # ── YOU BUILD THIS ────────────────────────────────────────────────────────────
 
 @app.post("/submit")
-@limiter.limit(f"{config.RATE_LIMIT_PER_MINUTE}/minute;{config.RATE_LIMIT_PER_DAY}/day")
+@limiter.limit(
+    f"{config.RATE_LIMIT_PER_MINUTE}/minute;{config.RATE_LIMIT_PER_DAY}/day",
+    key_func=creator_rate_limit_key,
+    scope="creator_id",
+    exempt_when=lambda: not creator_rate_limit_key(),
+)
+@limiter.limit(
+    f"{config.RATE_LIMIT_PER_MINUTE}/minute;{config.RATE_LIMIT_PER_DAY}/day",
+    key_func=get_remote_address,
+    scope="ip_address",
+)
 def submit():
     """
     Take a piece of text, decide about it, log the decision, answer.
@@ -225,6 +229,9 @@ def submit():
     # Flask decodes valid JSON escapes and preserves backticks in the text.
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
+        audit.log_rejection(
+            creator_id="unknown", reason="invalid_json_object", http_status=400,
+        )
         return jsonify({
             "error": "bad_request",
             "message": (
@@ -237,6 +244,9 @@ def submit():
 
     # Validate the text before calling the detector.
     if not isinstance(text, str) or not text.strip():
+        audit.log_rejection(
+            creator_id=creator_id, reason="missing_or_invalid_text", http_status=400,
+        )
         return jsonify({"error": "bad_request", "message": "Send JSON with a non-empty \"text\"."}), 400
 
     # Step 3 - one real signal that we first tested from the terminal
@@ -249,38 +259,51 @@ def submit():
     try:
         perplexity_score = detector.model_signal(text)
     except detector.TextTooShortError as exc:
+        audit.log_rejection(
+            creator_id=creator_id, reason="insufficient_model_input",
+            http_status=400, message=str(exc),
+        )
         return jsonify({"error": "bad_request", "message": str(exc)}), 400
+    except detector.DetectorUnavailable as exc:
+        audit.log_rejection(
+            creator_id=creator_id, reason="detector_unavailable",
+            http_status=500, message=str(exc),
+        )
+        raise
 
     # ***deb..start stretch feature*** binocular***
     # Second model-side signal: Binoculars (Hans et al., 2024). It divides the
     # detector's perplexity by a cross-perplexity so that text which is
     # predictable only because its TOPIC is predictable stops scoring as AI.
     #
-    # The model component uses the configured perplexity/Binoculars weights.
-    # scoring.combine_signals() then combines that component with style.
+    # It fills the same 0.5 "model" slot as the perplexity signal rather than
+    # taking weight away from the style signals: the two are averaged into one
+    # model_score, which is what scoring.combine_signals() and the logs see.
     #
     # If the second model can't load (no download yet, no disk), the route
     # degrades to the perplexity signal alone and says so in the response,
     # instead of failing every submission because of a stretch feature.
     import binoculars_signal
-    import scoring
 
-    # Below 250 whitespace-separated words, use perplexity alone. At or above
-    # the gate, blend 70% perplexity with 30% Binoculars. When enabled, compute
-    # and log Binoculars below the gate too for evaluation.
-    min_words = config.BINOCULARS_MIN_WORDS
+    # Binoculars is known to lose accuracy on short inputs (Hans et al., 2024),
+    # and on this project's short samples it ordered a plain-human paragraph as
+    # more AI-like than an actual AI paragraph. Below BINOCULARS_MIN_WORDS the
+    # model term is the perplexity signal alone; at or above it, the two are
+    # averaged. The Binoculars score is still computed and returned either way,
+    # so the eval reports can show what it would have said.
+    min_words = getattr(config, "BINOCULARS_MIN_WORDS", 100)
     word_count = len(text.split())
 
-    binoculars_score = None
-    if config.BINOCULARS_ENABLED:
-        try:
-            binoculars_score = binoculars_signal.binoculars_signal(text)
-        except detector.DetectorUnavailable:
-            pass
+    try:
+        binoculars_score = binoculars_signal.binoculars_signal(text)
+        binoculars_available = True
+    except detector.DetectorUnavailable:
+        binoculars_score = None
+        binoculars_available = False
 
-    binoculars_used = binoculars_score is not None and word_count >= min_words
+    binoculars_used = binoculars_available and word_count >= min_words
     if binoculars_used:
-        model_score = scoring.combine_model_signals(perplexity_score, binoculars_score)
+        model_score = round(0.5 * perplexity_score + 0.5 * binoculars_score, 4)
     else:
         model_score = perplexity_score
     # ***deb ..end of stretch feature*** binocular***
@@ -293,10 +316,19 @@ def submit():
     try:
         style_score = stylometry.style_signal(text)
     except stylometry.TextTooShortError as exc:
+        audit.log_rejection(
+            creator_id=creator_id, reason="insufficient_style_input",
+            http_status=400, message=str(exc),
+            model_score=model_score, perplexity_score=perplexity_score,
+            binoculars_score=binoculars_score, binoculars_used=binoculars_used,
+            word_count=word_count,
+        )
         return jsonify({"error": "bad_request", "message": str(exc)}), 400
 
 
     # Combine the signals and select the label and reader-facing sentence.
+    import scoring
+
     combined_score = scoring.combine_signals(model_score, style_score)
     label, confidence = scoring.score_to_label(combined_score)
     label_text = scoring.LABEL_TEXT[label]
@@ -339,8 +371,8 @@ def submit():
         "model_score": model_score,
         "style_score": style_score,
         # ***deb..start stretch feature*** binocular***
-        # model_score above is what the decision used (the weighted blend when
-        # Binoculars contributed). These are its components, for the eval reports and
+        # model_score above is what the decision used (average of the two when
+        # Binoculars ran). These are its components, for the eval reports and
         # for appeals.
         #------activate the below for
         #"perplexity_score": perplexity_score,
@@ -481,16 +513,11 @@ def get_log():
 def main():
     print(f"Provenance Guard on http://{config.HOST}:{config.PORT}")
     print(f"  detector model:  {config.DETECTOR_MODEL}")
-    print(f"  device setting:  {config.INFERENCE_DEVICE} (resolved when models load)")
     # ***deb..start stretch feature*** binocular***
-    performer = getattr(config, "BINOCULARS_PERFORMER", "gpt2-medium")
-    binoculars_status = (
-        performer or 'single-model mode (no second download)'
-        if config.BINOCULARS_ENABLED else 'OFF (AI201_BINOCULARS=0)'
-    )
-    print(f"  binoculars:      {binoculars_status}")
+    performer = getattr(config, "BINOCULARS_PERFORMER", "distilgpt2")
+    print(f"  binoculars:      {performer or 'single-model mode (no second download)'}")
     # ***deb ..end of stretch feature*** binocular***
-    print(f"  rate limiting:   {'ON' if config.RATE_LIMITING_ENABLED else 'off (AI201_RATE_LIMITS=0)'}")
+    print(f"  rate limiting:   {'ON' if config.RATE_LIMITING_ENABLED else 'OFF (config.py)'}")
     print(f"  audit log:       {config.AUDIT_LOG}")
     print()
     print("Check it's alive:")

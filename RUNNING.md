@@ -93,10 +93,9 @@ Restart after changing scoring settings too. GPU support retains the existing pr
 The active style signal uses a 50-word MATTR window with anchors `0.68` (AI)
 and `0.82` (human). See the
 [stylometry review](results/stylometry_review_2026-11-11/report.md) for the measured tradeoffs.
-Rate limits are enabled by default. For a batch of local API evaluations, use
-`AI201_RATE_LIMITS=0 AI201_DEVICE=mps .venv/bin/python app.py`; omit the rate-limit
-override for normal use. The calibration scripts that call scoring functions
-directly are not subject to API rate limits.
+Rate limits stay enabled for Unit 8 measurements through
+`RATE_LIMITING_ENABLED = True` in `config.py`. The calibration scripts that
+call scoring functions directly are not subject to API rate limits.
 
 ## Your first five minutes
 
@@ -222,26 +221,38 @@ one signal. Then log it.
 ## Rate limiting (unit 8)
 
 Rate limiting is enabled by default. `POST /submit` allows 9 requests per
-minute and 400 per day for each caller, using the constants in `config.py`.
-The route's limiter decorator is already active.
+minute and 400 per day independently for each IP address and each valid
+creator ID, using the same constants in `config.py`. Both route decorators
+are active. Every request counts against its IP, and a valid creator ID also
+has its own allowance across IPs. Exceeding either allowance returns `429`.
 
-Use `AI201_RATE_LIMITS=0 python app.py` to disable limiting explicitly, or
-`AI201_RATE_LIMITS=1 python app.py` to enable it explicitly. Restart the service
-after changing environment settings; `GET /health` reports `rate_limiting`.
+Keep `RATE_LIMITING_ENABLED = True` in `config.py` for the Unit 8 runs.
+The old `AI201_RATE_LIMITS` environment override no longer changes this setting.
+Restart after editing configuration; `GET /health` reports `rate_limiting`.
+Use the Flask service on its default port, 5000. If it is already running,
+do not start another copy. Otherwise, start it with `.venv/bin/python app.py`.
+`curl -sS http://127.0.0.1:5000/health` should return the service's JSON with
+`"ok": true` and `"rate_limiting": true`.
 
 Then push past your limit and watch for `429`:
 
 ```bash
-python run_attacks.py --flood 15
+curl -sS http://127.0.0.1:5000/health
+sleep 10
+.venv/bin/python run_attacks.py --flood 15 --url http://127.0.0.1:5000
+curl -sS http://127.0.0.1:5000/health
 ```
 
 That sends 15 submissions from one `creator_id` and prints the run of status
 codes — `200 200 200 ... 429 429` — which is exactly what your README's **Rate
 Limiting** section asks you to paste. It also writes `results/flood_<date>.md`.
 
-The attack set can't do this for you. Every attack row submits under its own
-`creator_id`, so a full attack run looks like forty-odd different callers and
-never trips a limit however long it is.
+Every attack row submits under its own `creator_id`, but requests from one
+machine still share the IP allowance. A rapid full-set run can therefore hit
+the IP limit. Changing creator IDs does not reset it, and writers sharing an
+IP share its cap. Record `429` outcomes as rate-limit results rather than
+classification results. Audit entries identify the breached allowance through
+`rate_limit_key_type` and `rate_limit_key`.
 
 No `429` at all? Either your limit is above 15 a minute, or rate limiting is
 still off. `GET /health` reports which.
@@ -355,7 +366,7 @@ sentences, a pasted quotation. That is very cheap to do on purpose.
 | *Every* submission takes 10+ seconds | Something is reloading the model each call. `GET /health` shows `detector_loaded` — if it goes back to `false`, look for a reload in your handler |
 | `DetectorUnavailable` | Run `python detector.py` once to download the model |
 | `/appeal` seems to do nothing | Does the `content_id` you sent actually exist in the log? A typo there fails silently |
-| Every request gets through, no `429` ever | Check `GET /health`, use the same `creator_id` for each request, and confirm `AI201_RATE_LIMITS=0` is not disabling the limiter. Restart with `AI201_RATE_LIMITS=1` if needed |
+| Every request gets through, no `429` ever | Check `GET /health`, use the same `creator_id` for each request, and confirm `RATE_LIMITING_ENABLED = True` in `config.py`. Restart after changing it |
 | Flask-Limiter warns about storage | Shouldn't happen — `storage_uri` is preconfigured. If you changed it, put it back |
 | All three of your labels never appear | Your ranges have a gap. `scoring.label_ranges()` prints them |
 

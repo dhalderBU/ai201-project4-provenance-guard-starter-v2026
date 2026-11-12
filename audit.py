@@ -127,12 +127,21 @@ def log_rejection(creator_id: str, reason: str, **extra) -> dict:
     **an attack that shows up only as an absence is one you'll never find.** A
     thousand requests that got a 429 and left no trace look exactly like a
     quiet afternoon.
+
+    Keep the same nine fields as a decision. Values that do not exist yet
+    are null; callers may supply a score already computed before rejection.
     """
     return _append({
         "timestamp": _now(),
+        "content_id": None,
         "creator_id": creator_id,
-        "event": "rejected",
+        "guess": None,
+        "model_score": None,
+        "style_score": None,
+        "combined_score": None,
+        "label": None,
         "status": "rejected",
+        "event": "rejected",
         "reason": reason,
         **extra,
     })

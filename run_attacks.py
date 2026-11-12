@@ -26,12 +26,12 @@ And for Milestone 1, to prove your rate limit works:
 That sends 15 submissions from ONE creator_id in a burst and prints the run of
 status codes, which is what your README's **Rate Limiting** section asks for.
 
-Every row in `attacks.csv` gets its own creator_id (`attacker_<id>`), so those
-attacks look like a crowd of different callers and never trip a limit. The one
-exception is the `flood_same_creator` family in the malformed-requests file,
-whose rows deliberately share a creator_id — those are the only attacks in the
-set that mean anything with limiting switched on, and this script warns you
-before the run if it's off.
+Every row in `attacks.csv` gets its own creator_id (`attacker_<id>`). The
+service now also enforces an IP allowance, so those different IDs still share
+the limit for the machine sending the requests. A rapid full-set run can return
+429 responses even when every row has a different creator ID. The
+`flood_same_creator` family deliberately shares an ID as well; this script
+warns before the run if limiting is off.
 
 Sending the whole set by hand would eat the milestone, so this does the sending
 and the recording. What it does **not** do is decide whether an attack held or
@@ -335,8 +335,12 @@ def require_requests():
 
 FLOOD_TEXT = (
     "This is an ordinary submission, sent over and over from the same account "
-    "to find out where the rate limit sits. Nothing about the text matters here."
+    "to find out where the rate limit sits. Nothing about the text matters here. "
+    "A writer may revise a draft several times before sharing it. Each request "
+    "should receive the usual decision until the allowance is exhausted."
 )
+# Four sentences and more than 40 words satisfy the existing style minimum;
+# the flood should exercise successful submissions before the limiter rejects it.
 
 
 def run_flood(args):

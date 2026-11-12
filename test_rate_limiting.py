@@ -12,21 +12,22 @@ import config
 
 
 class RateLimitConfigTests(unittest.TestCase):
-    def test_environment_switch_matches_documented_default_and_overrides(self):
-        for value, expected in ((None, True), ("0", False), ("1", True)):
+    def test_week8_limiter_is_enabled_even_with_a_stale_environment_override(self):
+        for value in (None, "0", "1"):
             with self.subTest(value=value), patch.dict(os.environ):
                 if value is None:
                     os.environ.pop("AI201_RATE_LIMITS", None)
                 else:
                     os.environ["AI201_RATE_LIMITS"] = value
                 settings = runpy.run_path(str(Path(__file__).with_name("config.py")))
-                self.assertIs(settings["RATE_LIMITING_ENABLED"], expected)
+                self.assertIs(settings["RATE_LIMITING_ENABLED"], True)
 
 
 class RateLimitTests(unittest.TestCase):
     def setUp(self):
         self.now = self.enterContext(patch("time.time", return_value=2_000_000_000.0))
         self.model = self.enterContext(patch("detector.model_signal", return_value=0.5))
+        self.enterContext(patch("binoculars_signal.binoculars_signal", return_value=0.5))
         self.style = self.enterContext(patch("stylometry.style_signal", return_value=0.5))
         self.decisions = self.enterContext(patch("audit.log_decision"))
         self.enterContext(patch("submissions.save_submission"))
@@ -72,17 +73,21 @@ class RateLimitTests(unittest.TestCase):
             creator_id="writer",
             reason="rate_limited",
             limit=response.get_json()["limit"],
+            http_status=429,
+            ip_address="127.0.0.1",
+            rate_limit_key="127.0.0.1",
+            rate_limit_key_type="ip_address",
         )
 
         self.now.return_value += 61
         self.assertEqual(self.submit(client).status_code, 200)
 
-    def test_daily_limit_survives_minute_resets_and_expires(self):
+    def test_daily_ip_limit_survives_creator_changes_and_minute_resets(self):
         client = self.client()
         for index in range(config.RATE_LIMIT_PER_DAY):
             if index and index % config.RATE_LIMIT_PER_MINUTE == 0:
                 self.now.return_value += 61
-            self.assertEqual(self.submit(client).status_code, 200)
+            self.assertEqual(self.submit(client, creator=f"writer-{index}").status_code, 200)
 
         self.now.return_value += 61
         response = self.submit(client)
@@ -90,6 +95,7 @@ class RateLimitTests(unittest.TestCase):
         self.assertIn("day", response.get_json()["limit"])
         self.assertGreater(int(response.headers["Retry-After"]), 60)
         self.assertEqual(self.model.call_count, config.RATE_LIMIT_PER_DAY)
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key_type"], "ip_address")
 
         self.now.return_value = 2_000_000_000.0 + 86401
         self.assertEqual(self.submit(client).status_code, 200)
@@ -100,12 +106,52 @@ class RateLimitTests(unittest.TestCase):
             self.assertEqual(self.submit(client).status_code, 200)
         self.rejections.assert_not_called()
 
-    def test_creator_ids_have_separate_allowances(self):
+    def test_new_creator_on_exhausted_ip_is_blocked_but_other_ip_has_capacity(self):
         client = self.client()
         for _ in range(config.RATE_LIMIT_PER_MINUTE):
             self.assertEqual(self.submit(client, creator="writer-a").status_code, 200)
         self.assertEqual(self.submit(client, creator="writer-a").status_code, 429)
-        self.assertEqual(self.submit(client, creator="writer-b").status_code, 200)
+        self.assertEqual(self.submit(client, creator="writer-b").status_code, 429)
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key_type"], "ip_address")
+        self.assertEqual(self.submit(client, creator="writer-b", address="192.0.2.1").status_code, 200)
+
+    def test_rotating_creators_cannot_bypass_the_minute_ip_limit(self):
+        client = self.client()
+        for index in range(config.RATE_LIMIT_PER_MINUTE):
+            self.assertEqual(self.submit(client, creator=f"writer-{index}").status_code, 200)
+        self.assertEqual(self.submit(client, creator="another-writer").status_code, 429)
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key_type"], "ip_address")
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key"], "127.0.0.1")
+        self.assertEqual(self.model.call_count, config.RATE_LIMIT_PER_MINUTE)
+
+    def test_creator_limit_still_applies_across_different_ips(self):
+        client = self.client()
+        for index in range(config.RATE_LIMIT_PER_MINUTE):
+            self.assertEqual(self.submit(client, address=f"192.0.2.{index + 1}").status_code, 200)
+        self.assertEqual(self.submit(client, address="192.0.2.100").status_code, 429)
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key_type"], "creator_id")
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key"], "writer")
+        self.assertEqual(self.submit(client, creator="other-writer", address="192.0.2.100").status_code, 200)
+
+    def test_daily_creator_limit_applies_across_ips_and_minute_resets(self):
+        client = self.client()
+        for index in range(config.RATE_LIMIT_PER_DAY):
+            if index and index % config.RATE_LIMIT_PER_MINUTE == 0:
+                self.now.return_value += 61
+            self.assertEqual(self.submit(client, address=f"2001:db8::{index + 1:x}").status_code, 200)
+        self.now.return_value += 61
+        response = self.submit(client, address="2001:db8::ffff")
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("day", response.get_json()["limit"])
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key_type"], "creator_id")
+        self.now.return_value = 2_000_000_000.0 + 86401
+        self.assertEqual(self.submit(client).status_code, 200)
+
+    def test_creator_named_like_ip_does_not_double_count_the_same_bucket(self):
+        client = self.client()
+        for _ in range(config.RATE_LIMIT_PER_MINUTE):
+            self.assertEqual(self.submit(client, creator="127.0.0.1").status_code, 200)
+        self.assertEqual(self.submit(client, creator="127.0.0.1").status_code, 429)
 
     def test_missing_or_invalid_creator_uses_ip_address(self):
         client = self.client()
@@ -113,6 +159,9 @@ class RateLimitTests(unittest.TestCase):
             creator = (None, "", "   ", 123, ["writer"])[index % 5]
             self.assertEqual(self.submit(client, creator=creator).status_code, 200)
         self.assertEqual(self.submit(client, creator=None).status_code, 429)
+        self.assertEqual(self.rejections.call_args.kwargs["ip_address"], "127.0.0.1")
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key"], "127.0.0.1")
+        self.assertEqual(self.rejections.call_args.kwargs["rate_limit_key_type"], "ip_address")
         self.assertEqual(
             self.submit(client, creator=None, address="192.0.2.1").status_code, 200
         )
@@ -130,7 +179,8 @@ class RateLimitTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"], "rate_limited")
         self.model.assert_not_called()
         self.decisions.assert_not_called()
-        self.rejections.assert_called_once()
+        self.assertEqual(self.rejections.call_count, config.RATE_LIMIT_PER_MINUTE + 1)
+        self.assertEqual(self.rejections.call_args.kwargs["reason"], "rate_limited")
 
     def test_ping_does_not_consume_submission_allowance(self):
         client = self.client()
