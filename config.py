@@ -75,7 +75,7 @@ APPEAL_WEIGHT_STYLE_SIGNAL = 0.4
 # that decide who pays for it.
 
 HUMAN_THRESHOLD = 0.4
-AI_THRESHOLD = 0.60
+AI_THRESHOLD = 0.80
 
 # A weighted average with nonnegative weights summing to 1.0 stays between
 # its two inputs. With these weights, the model has more influence when the

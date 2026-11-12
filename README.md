@@ -2248,37 +2248,618 @@ made for this review. The local checkpoint is
 
 ## The Improvement
 
-**What I changed:**
+**Milestone 5 — one declared change.** I selected this change before running
+the after measurements: raise `config.py::AI_THRESHOLD` from **0.60 to 0.80**.
+The human boundary remains 0.40, so the new unsure band is `0.40 < score < 0.80`.
+The same setting controls labels for submissions and appeal variants.
 
-**Which diagnosis pointed at it:**
+**Which diagnosis pointed at it:** FP02–FP07 were false AI accusations on
+human-reference writing, with combined scores from 0.690872 to 0.795004.
+FP05 was the worst writer-facing outcome. A rounded 0.80 boundary places those
+known cases in `unsure`, while preserving an AI band for higher scores.
+This choice is informed by the known attack set, not independent validation.
+
+**Expected cost:** AI texts in `[0.60, 0.80)` also become `unsure`. The original
+criteria and expected labels stay fixed, including criterion 3's 0.60 AI
+boundary, so the after run can expose a missed target. The audit creator-ID
+defect and the 0.40/0.45 human-boundary mismatch remain separate findings.
+
+Only this threshold changes. Signals, weights, short-text validation, rate
+limits, logging, and fixtures stay fixed. The
+[declared plan](results/week8_milestone5_2026-11-12/improvement_plan.json)
+records the selection and baseline hashes before the change.
 
 ### Attack Run — After
 
-<!-- Same format. `run_attacks.py --label after` -->
+The full supplied set was rerun with the same pacing used for the before
+run. `run_paced_attacks.py` calls `run_attacks.py::load_attacks` and `send`;
+using the same wrapper keeps the IP limiter from obscuring ordinary cases.
+The root copy of `attack_set 3` is byte-for-byte identical to the Downloads
+files used before. The after evidence is saved separately:
 
+```bash
+.venv/bin/python run_paced_attacks.py --set 'attack_set 3' --output results/week8_milestone5_attack_after_2026-11-12 --url http://127.0.0.1:5000 --health-wait 10
+```
 
+**All 56 attacks ran.** The result is **47 HELD / 9 BROKE**, compared with
+**41 HELD / 15 BROKE** before. Both runs returned 21 HTTP 200s, 32 HTTP 400s,
+and 3 HTTP 429s. Every request body, HTTP status, model score, style score,
+and combined score matched its before-run counterpart exactly. Seven labels
+changed: six human-reference cases moved from `ai` to `unsure`, as did the
+long malformed-input fixture MF08. Only the six false-positive verdicts
+changed. The [original verdict policy](results/week8_milestone5_2026-11-12/verdict_policy.md)
+was reused unchanged.
+
+| Family | Inputs | Before HELD | Before BROKE | After HELD | After BROKE |
+|---|---|---|---|---|---|
+| evasion | 10 | 3 | 7 | 3 | 7 |
+| false_positive | 8 | 2 | 6 | 8 | 0 |
+| prompt_injection | 6 | 4 | 2 | 4 | 2 |
+| malformed | 20 | 20 | 0 | 20 | 0 |
+| flood_same_creator | 12 | 12 | 0 | 12 | 0 |
+
+**Health immediately before the after attack run:**
+
+```json
+{
+  "binoculars_loaded": false,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": false,
+  "detector_model": "gpt2",
+  "log_entries": 656,
+  "ok": true,
+  "rate_limiting": true
+}
+```
+
+The runner waited **10.010 seconds** after this call. The flood
+family again returned nine `400`s followed by three `429`s:
+
+```text
+400 400 400 400 400 400 400 400 400 429 429 429
+```
+
+**Health immediately after the final 429:**
+
+```json
+{
+  "binoculars_loaded": true,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": true,
+  "detector_model": "gpt2",
+  "log_entries": 712,
+  "ok": true,
+  "rate_limiting": true
+}
+```
+
+The audit increased from 656 to 712, exactly 56 entries. The first nine flood
+rows still fail the existing short-text requirement and consume the allowance;
+the final three are rate-limited before scoring. No non-flood row received 429.
+
+**Every attack, before and after**
+
+The three score columns apply to **both runs**, because all scores were
+identical. Values are rounded to six decimals here. Each outcome cell lists
+HTTP status / label / verdict; a dash means no final classification exists.
+Full-precision outcomes, diagnoses, and audit entries are in the
+[after report](results/week8_milestone5_attack_after_2026-11-12/report.md) and
+[reviewed JSON](results/week8_milestone5_attack_after_2026-11-12/reviewed_results.json).
+
+| ID | Model, both | Style, both | Combined, both | Before: HTTP / label / verdict | After: HTTP / label / verdict |
+|---|---|---|---|---|---|
+| EV01 | 0.163500 | 0.500000 | 0.264450 | 200 / human / BROKE | 200 / human / BROKE |
+| EV02 | 0.594300 | 0.000000 | 0.416010 | 200 / unsure / BROKE | 200 / unsure / BROKE |
+| EV03 | 0.503100 | 0.253225 | 0.428137 | 200 / unsure / BROKE | 200 / unsure / BROKE |
+| EV04 | 0.611400 | 0.500000 | 0.577980 | 200 / unsure / BROKE | 200 / unsure / BROKE |
+| EV05 | 0.321200 | 0.002439 | 0.225572 | 200 / human / BROKE | 200 / human / BROKE |
+| EV06 | 0.572700 | 0.000000 | 0.400890 | 200 / unsure / BROKE | 200 / unsure / BROKE |
+| EV07 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| EV08 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| EV09 | 0.603200 | 0.227432 | 0.490470 | 200 / unsure / BROKE | 200 / unsure / BROKE |
+| EV10 | 0.979200 | 0.669812 | 0.886384 | 200 / ai / HELD | 200 / ai / HELD |
+| FP01 | 0.490000 | 0.275142 | 0.425543 | 200 / unsure / HELD | 200 / unsure / HELD |
+| FP02 | 0.738700 | 0.607937 | 0.699471 | 200 / ai / BROKE | 200 / unsure / HELD |
+| FP03 | 0.805100 | 0.424341 | 0.690872 | 200 / ai / BROKE | 200 / unsure / HELD |
+| FP04 | 0.832900 | 0.367147 | 0.693174 | 200 / ai / BROKE | 200 / unsure / HELD |
+| FP05 | 0.800500 | 0.782179 | 0.795004 | 200 / ai / BROKE | 200 / unsure / HELD |
+| FP06 | 0.881400 | 0.317243 | 0.712153 | 200 / ai / BROKE | 200 / unsure / HELD |
+| FP07 | 0.881600 | 0.300000 | 0.707120 | 200 / ai / BROKE | 200 / unsure / HELD |
+| FP08 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| PI01 | 0.462500 | 0.000000 | 0.323750 | 200 / human / BROKE | 200 / human / BROKE |
+| PI02 | 0.204400 | 0.000000 | 0.143080 | 200 / human / BROKE | 200 / human / BROKE |
+| PI03 | 0.594300 | 0.432724 | 0.545827 | 200 / unsure / HELD | 200 / unsure / HELD |
+| PI04 | 0.499800 | 0.412425 | 0.473588 | 200 / unsure / HELD | 200 / unsure / HELD |
+| PI05 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| PI06 | 0.504300 | 0.273274 | 0.434992 | 200 / unsure / HELD | 200 / unsure / HELD |
+| MF01 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| MF02 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| MF03 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| MF04 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| MF05 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| MF06 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| MF07 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| MF08 | 0.767900 | 0.323354 | 0.634536 | 200 / ai / HELD | 200 / unsure / HELD |
+| RQ01 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ02 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ03 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ04 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ05 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ06 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ07 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ08 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ09 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ10 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ11 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| RQ12 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_01 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_02 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_03 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_04 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_05 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_06 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_07 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_08 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_09 | — | — | — | 400 / — / HELD | 400 / — / HELD |
+| FL01_10 | — | — | — | 429 / — / HELD | 429 / — / HELD |
+| FL01_11 | — | — | — | 429 / — / HELD | 429 / — / HELD |
+| FL01_12 | — | — | — | 429 / — / HELD | 429 / — / HELD |
+
+**Ten audit entries from the after attack run**
+
+These are the same ten case IDs selected for the before excerpt: EV01, EV02,
+EV05, FP03, FP05, PI01, PI02, PI05, MF08, and FL01_10. They show the remaining
+label failures, two avoided false accusations, validation, the long-input
+case, and a 429 rejection.
+
+```jsonl
+{"binoculars_score": 0.0031, "binoculars_used": false, "combined_score": 0.26444999999999996, "confidence": 0.26444999999999996, "content_id": "c_ca7079b9eb68", "creator_id": "attacker_EV01", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.1635, "perplexity_score": 0.1635, "status": "decided", "style_score": 0.5, "timestamp": "2026-11-12T11:24:36+00:00", "word_count": 84}
+{"binoculars_score": 0.1684, "binoculars_used": false, "combined_score": 0.41601, "confidence": 0.41601, "content_id": "c_1b67d8a97e0a", "creator_id": "attacker_EV02", "guess": "unsure", "label": "unsure", "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.", "model_score": 0.5943, "perplexity_score": 0.5943, "status": "decided", "style_score": 0.0, "timestamp": "2026-11-12T11:24:36+00:00", "word_count": 93}
+{"binoculars_score": 0.064, "binoculars_used": false, "combined_score": 0.22557170731707316, "confidence": 0.22557170731707316, "content_id": "c_627e064fdaa5", "creator_id": "attacker_EV05", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.3212, "perplexity_score": 0.3212, "status": "decided", "style_score": 0.0024390243902439046, "timestamp": "2026-11-12T11:24:36+00:00", "word_count": 81}
+{"binoculars_score": 0.9195, "binoculars_used": false, "combined_score": 0.6908722110238241, "confidence": 0.6908722110238241, "content_id": "c_ab6d26e7e97f", "creator_id": "attacker_FP03", "guess": "unsure", "label": "unsure", "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.", "model_score": 0.8051, "perplexity_score": 0.8051, "status": "decided", "style_score": 0.42434070341274727, "timestamp": "2026-11-12T11:25:33+00:00", "word_count": 83}
+{"binoculars_score": 0.9086, "binoculars_used": false, "combined_score": 0.7950036007684792, "confidence": 0.7950036007684792, "content_id": "c_70d11bf1cfb0", "creator_id": "attacker_FP05", "guess": "unsure", "label": "unsure", "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.", "model_score": 0.8005, "perplexity_score": 0.8005, "status": "decided", "style_score": 0.7821786692282644, "timestamp": "2026-11-12T11:25:33+00:00", "word_count": 70}
+{"binoculars_score": 0.6885, "binoculars_used": false, "combined_score": 0.32375, "confidence": 0.32375, "content_id": "c_0fd99305374c", "creator_id": "attacker_PI01", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.4625, "perplexity_score": 0.4625, "status": "decided", "style_score": 0.0, "timestamp": "2026-11-12T11:26:34+00:00", "word_count": 45}
+{"binoculars_score": 0.2167, "binoculars_used": false, "combined_score": 0.14307999999999998, "confidence": 0.14307999999999998, "content_id": "c_f3631242348f", "creator_id": "attacker_PI02", "guess": "human", "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.2044, "perplexity_score": 0.2044, "status": "decided", "style_score": 0.0, "timestamp": "2026-11-12T11:26:34+00:00", "word_count": 42}
+{"binoculars_score": 0.9088, "binoculars_used": false, "combined_score": null, "content_id": null, "creator_id": "attacker_PI05", "event": "rejected", "guess": null, "http_status": 400, "label": null, "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "model_score": 0.6401, "perplexity_score": 0.6401, "reason": "insufficient_style_input", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T11:26:34+00:00", "word_count": 28}
+{"binoculars_score": 0.5481, "binoculars_used": true, "combined_score": 0.6345361319963677, "confidence": 0.6345361319963677, "content_id": "c_9029772a112a", "creator_id": "attacker_MF08", "guess": "unsure", "label": "unsure", "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.", "model_score": 0.7679, "perplexity_score": 0.9876, "status": "decided", "style_score": 0.3233537733212259, "timestamp": "2026-11-12T11:27:36+00:00", "word_count": 11330}
+{"combined_score": null, "content_id": null, "creator_id": "attacker_flood", "event": "rejected", "guess": null, "http_status": 429, "ip_address": "127.0.0.1", "label": null, "limit": "9 per 1 minute", "model_score": null, "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "reason": "rate_limited", "status": "rejected", "style_score": null, "timestamp": "2026-11-12T11:29:37+00:00"}
+```
+
+### Five criteria — After
+
+After the flood minute expired, I ran the same five scenarios three times
+using the original targets and fixtures:
+
+```bash
+.venv/bin/python run_eval.py --label after --url http://127.0.0.1:5000 --output results/week8_milestone5_eval_after_2026-11-12
+```
+
+`run_eval.py::run_case` sent 105 new submissions and 15 appeals.
+Submissions returned 81 HTTP 200s and 24 HTTP 400s, with no 429s, 500s,
+non-JSON responses, or retries. All appeals returned HTTP 200. The 135 audit
+entries contain 81 decisions, 24 rejections, 15 appeals, and 15 reassessments.
+The measured run was 11:30:51–11:42:02 UTC on 12 November 2026.
+
+**Health before the after criterion run**, followed by a measured
+**10.010-second wait**:
+
+```json
+{
+  "binoculars_loaded": true,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": true,
+  "detector_model": "gpt2",
+  "log_entries": 712,
+  "ok": true,
+  "rate_limiting": true
+}
+```
+
+**Health immediately after the final trial:**
+
+```json
+{
+  "binoculars_loaded": true,
+  "binoculars_performer": "distilgpt2",
+  "detector_loaded": true,
+  "detector_model": "gpt2",
+  "log_entries": 847,
+  "ok": true,
+  "rate_limiting": true
+}
+```
+
+**Original targets, before and after**
+
+Each verdict requires the target to hold in all three trials. The criterion
+3 oracle still uses the original human cutoff of 0.45 and AI cutoff of 0.60;
+it was not changed to make the new 0.80 service threshold pass.
+
+| Criterion | Target | Before 1 | Before 2 | Before 3 | Before verdict | After 1 | After 2 | After 3 | After verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| 1. False positive rate | At most 2/5 human pieces labelled AI | 0/5 AI | 0/5 AI | 0/5 AI | **MET** | 0/5 AI | 0/5 AI | 0/5 AI | **MET** |
+| 2. AI minus human mean score | Mean gap >= 0.30 (5 AI + 5 human) | 0.509418 | 0.509418 | 0.509418 | **MET** | 0.509418 | 0.509418 | 0.509418 | **MET** |
+| 3. Correct labels | At least 4/5 correct labels | 4/5 | 4/5 | 4/5 | **MET** | 3/5 | 3/5 | 3/5 | **MISSED** |
+| 4. Appeal process | 5/5 appeals satisfy the recorded process | 5/5 | 5/5 | 5/5 | **MET** | 5/5 | 5/5 | 5/5 | **MET** |
+| 5. Complete and accurate audit entries | 10/10 requests logged in the required format | 6/10 | 6/10 | 6/10 | **MISSED** | 6/10 | 6/10 | 6/10 | **MISSED** |
+
+All three after trials match. Every model, style, and combined submission
+score is exactly equal to its before-run counterpart; appeal variant scores
+also match. IDs and timestamps change because these are new requests. The
+fixture texts, malformed bodies, expected labels, and scoring code are fixed.
+**Three criteria now meet their targets, down from four.**
+
+- **Criteria 1 and 2 remain MET:** all five human references still receive
+  `human`, and the unchanged mean-score gap is 0.509418.
+
+- **Criterion 3 changes from MET to MISSED (4/5 → 3/5). Stage: label mapping.**
+  The demo AI paragraph scores 0.6196043276276597 in both runs. Raising the
+  AI cutoff changes its label from `ai` to `unsure`, violating its expected
+  label and the original 0.60 band. The Tina Turner sample still exposes
+  the earlier 0.40/0.45 human-boundary mismatch. Both cases fail in every
+  after trial; the target remains at least four correct cases.
+
+- **Criterion 4 remains MET at 5/5:** all 15 appeals still satisfy the
+  recorded process. The shared threshold changes three appeal majorities
+  per trial from AI to unsure, while the two human majorities stay human.
+  The after run therefore tests the exact unsure-majority message live.
+  The 60/40 weights and three variant scores are unchanged. This is a
+  process pass, not evidence that appeal classification became more accurate.
+
+- **Criterion 5 remains MISSED at 6/10. Stage: route.** All ten requests per
+  trial are logged, but null, empty, whitespace-only, and object-valued IDs
+  still pass through `payload.get("creator_id", "unknown")` unchanged.
+  They still fail the required `unknown` normalization. A label threshold
+  cannot repair this route-to-log behavior.
+
+Complete after trials and responses are in the
+[run report](results/week8_milestone5_eval_after_2026-11-12/report.md),
+[results JSON](results/week8_milestone5_eval_after_2026-11-12/results.json), and
+[audit excerpt](results/week8_milestone5_eval_after_2026-11-12/audit_excerpt.jsonl).
+The [paired comparison](results/week8_milestone5_2026-11-12/criterion_comparison.json)
+preserves all trial metrics and label changes.
+
+**Real output from after trial 1**
+
+As in the before section, each excerpt contains one actual HTTP response and
+its criterion’s full-trial metrics. `run_eval.py::run_case` captured the
+responses; `summarize`, `appeal_checks`, and `audit_checks` produced the
+metrics and checks. The linked report contains every case from all trials.
+
+**Criterion 1 — `app.py::submit`**
+
+```json
+{
+  "criterion": 1,
+  "trial": 1,
+  "metrics": {
+    "requests": 5,
+    "all_submissions_scored": true,
+    "ai_labels": 0,
+    "human_labels": 5,
+    "unsure_labels": 0
+  },
+  "verdict": "MET",
+  "case": "own_1",
+  "http_status": 200,
+  "response": {
+    "combined_score": 0.248051339913131,
+    "confidence": 0.248051339913131,
+    "content_id": "c_e5276603d72f",
+    "guess": "human",
+    "label": "human",
+    "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.",
+    "model_score": 0.0853,
+    "style_score": 0.6278044663771033
+  }
+}
+```
+
+**Criterion 2 — `app.py::submit`**
+
+```json
+{
+  "criterion": 2,
+  "trial": 1,
+  "metrics": {
+    "requests": 10,
+    "all_submissions_scored": true,
+    "human_mean": 0.27512793623016096,
+    "ai_mean": 0.7845462862090351,
+    "gap": 0.5094183499788741
+  },
+  "verdict": "MET",
+  "case": "ai_00000113_00",
+  "http_status": 200,
+  "response": {
+    "combined_score": 0.7923010364991867,
+    "confidence": 0.7923010364991867,
+    "content_id": "c_3854fb762f85",
+    "guess": "unsure",
+    "label": "unsure",
+    "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.",
+    "model_score": 0.8852,
+    "style_score": 0.5755367883306223
+  }
+}
+```
+
+**Criterion 3 — `app.py::submit`**
+
+```json
+{
+  "criterion": 3,
+  "trial": 1,
+  "metrics": {
+    "requests": 5,
+    "all_submissions_scored": true,
+    "correct": 3,
+    "labels_reached": [
+      "ai",
+      "human",
+      "unsure"
+    ],
+    "expected_label_matches": 4,
+    "criterion_band_matches": 3
+  },
+  "verdict": "MISSED",
+  "case": "demo_ai",
+  "http_status": 200,
+  "response": {
+    "combined_score": 0.6196043276276597,
+    "confidence": 0.6196043276276597,
+    "content_id": "c_1320e661eac4",
+    "guess": "unsure",
+    "label": "unsure",
+    "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.",
+    "model_score": 0.7544,
+    "style_score": 0.3050810920921994
+  },
+  "checks": {
+    "scored": true,
+    "expected_label": false,
+    "criterion_band": false
+  }
+}
+```
+
+**Criterion 4 — `app.py::appeal → appeals.py::reassess`**
+
+```json
+{
+  "criterion": 4,
+  "trial": 1,
+  "metrics": {
+    "requests": 5,
+    "all_submissions_scored": true,
+    "passed": 5,
+    "failures": []
+  },
+  "verdict": "MET",
+  "case": "ai_00000113_00",
+  "http_status": 200,
+  "response": {
+    "appeal_id": "a_6a3e1d59abc6",
+    "content_id": "c_4326cb4c0616",
+    "evaluations": [
+      {
+        "combined_score": 0.7613347153322488,
+        "label": "unsure",
+        "model_score": 0.8852,
+        "status": "scored",
+        "style_score": 0.5755367883306223,
+        "variant": "original"
+      },
+      {
+        "combined_score": 0.7417178802577131,
+        "label": "unsure",
+        "model_score": 0.8585,
+        "status": "scored",
+        "style_score": 0.5665447006442826,
+        "variant": "without_first_sentence"
+      },
+      {
+        "combined_score": 0.7419168405460653,
+        "label": "unsure",
+        "model_score": 0.8527,
+        "status": "scored",
+        "style_score": 0.5757421013651634,
+        "variant": "without_last_sentence"
+      }
+    ],
+    "label": "unsure",
+    "label_text": "We do not have enough evidence to determine how this text was written. The writer can request a review.",
+    "message": "Based on revaluation we do not have enough evidence to determine how this text was written. Your appeal has been recorded.",
+    "review_type": "automatic",
+    "status": "under_review",
+    "votes": {
+      "ai": 0,
+      "human": 0,
+      "unsure": 3
+    },
+    "weights": {
+      "model": 0.6,
+      "style": 0.4
+    }
+  },
+  "status_readback": {
+    "content_id": "c_4326cb4c0616",
+    "credential": null,
+    "status": "under_review"
+  },
+  "checks": {
+    "accepted": true,
+    "under_review": true,
+    "status_readback": true,
+    "appeal_logged": true,
+    "result_logged": true,
+    "three_variants": true,
+    "weights": true,
+    "scored_with_60_40": true,
+    "majority": true,
+    "message": true
+  }
+}
+```
+
+**Criterion 5 — `app.py::submit`**
+
+```json
+{
+  "criterion": 5,
+  "trial": 1,
+  "metrics": {
+    "requests": 10,
+    "all_submissions_scored": false,
+    "passed": 6,
+    "failures": [
+      {
+        "case": "null_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      },
+      {
+        "case": "empty_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      },
+      {
+        "case": "whitespace_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      },
+      {
+        "case": "object_creator",
+        "failed_checks": [
+          "creator_id"
+        ]
+      }
+    ]
+  },
+  "verdict": "MISSED",
+  "case": "object_creator",
+  "http_status": 400,
+  "response": {
+    "error": "bad_request",
+    "message": "Send JSON with a non-empty \"text\"."
+  },
+  "checks": {
+    "one_entry": true,
+    "timestamp": true,
+    "creator_id": false,
+    "controlled_rejection": true,
+    "rejection_format": true
+  },
+  "request": {
+    "text": "",
+    "creator_id": {
+      "name": "invalid"
+    }
+  },
+  "audit_entries": [
+    {
+      "combined_score": null,
+      "content_id": null,
+      "creator_id": {
+        "name": "invalid"
+      },
+      "event": "rejected",
+      "guess": null,
+      "http_status": 400,
+      "label": null,
+      "model_score": null,
+      "reason": "missing_or_invalid_text",
+      "status": "rejected",
+      "style_score": null,
+      "timestamp": "2026-11-12T11:40:00+00:00"
+    }
+  ]
+}
+```
 
 **Did it help, and how do I know?**
 
-<!-- Widening the unsure band usually fixes one problem and creates another.
-     Reporting that trade honestly is worth full credit. -->
+**It reduced false AI accusations on the human-reference attacks from 6/8 to
+0/8, but reduced AI detection on the five AI evaluation samples from 5/5 to
+1/5 and caused the label criterion to miss its original target.**
 
+| Observed outcome | Before | After | Meaning |
+|---|---|---|---|
+| Human-reference attacks labelled AI | 6/8 (6/7 scored) | 0/8 (0/7 scored) | Six false accusations become abstentions |
+| Human-reference attacks labelled human | 0/8 | 0/8 | The fix does not establish human authorship |
+| Human-reference attacks labelled unsure / rejected | 1 / 1 | 7 / 1 | More uncertainty, same short-text rejection |
+| AI-labelled evasion inputs detected as AI | 1/10 (1/8 scored) | 1/10 (1/8 scored) | The known evasion weakness remains |
+| Five HC3 AI references detected as AI, each trial | 5/5 | 1/5 | Four now receive unsure, not human |
+| Criteria meeting the original targets | 4/5 | 3/5 | One regression; audit formatting still misses |
+| Full attack verdicts | 41 HELD / 15 BROKE | 47 HELD / 9 BROKE | Improvement is confined to false-accusation outcomes |
+
+The improved attack total alone would hide the cost: this attack set has only
+one scored evasion case above the old AI boundary, and it remains above 0.80.
+The separate AI reference cohort contains four cases in the band that moved
+to unsure. This is why both the attack set and the five criteria matter.
+The score-gap criterion stays MET because thresholds do not change scores;
+it does not guarantee AI recall at the chosen label boundary.
+
+The threshold was selected using these known failures, so this is a measured
+before/after result on fixed samples, not independent validation or a general
+accuracy claim. I retained the one declared 0.80 threshold for this milestone
+and recorded the regression. I did not retune it after seeing the after run.
+
+Validation: the initial **33 focused tests passed** before the live runs.
+The final suite passed **45 focused tests**, including the appeal tests. One
+existing weighting test assumed the old operational cutoff; its fixture now
+fixes a 0.60 boundary inside that test so it isolates 60/40 versus 70/30
+weighting. This test-only adjustment was made after the live runs; the service
+stays at 0.80, and the unchanged evaluation oracle still records criterion 3
+as MISSED. See the [final test output](results/week8_milestone5_2026-11-12/final_focused_tests.txt). The
+[source comparison](results/week8_milestone5_2026-11-12/source_comparison.json)
+and [one-line patch](results/week8_milestone5_2026-11-12/change.patch) verify
+that `AI_THRESHOLD = 0.60` → `AI_THRESHOLD = 0.80` is the only service change.
+Both runs retained rate limiting, the same fixtures and verdict policy, and
+the original criterion targets. The
+[validation record](results/week8_milestone5_2026-11-12/validation.json)
+checks the paired scores, statuses, audit entries, and unchanged sources.
+The local checkpoint is `week8-milestone5-2026-11-12`; nothing was pushed.
 
 
 ---
 
 ## What's Still Broken
 
-<!-- For each attack still getting through and each criterion still missed:
-     what you'd do, and why you stopped. -->
+The nine remaining BROKE attacks and two missed criteria are retained below.
+The proposed next steps are future work, not changes made in this milestone.
 
+| Remaining finding | Stage and mechanism | What I would investigate or fix next |
+|---|---|---|
+| EV01, EV05 still return human | Signal one, signal two, combining rule: low model scores and the existing style contributions produce 0.264450 and 0.225572, below the unchanged 0.40 human cutoff. Raising only the AI cutoff cannot change these labels. | Use a separate, prospectively selected set of edited AI and varied human writing to assess the signal failure. |
+| EV02, EV06 still return unsure | Signal two and combining rule: high sentence-length spread and vocabulary diversity make style zero; the combined scores remain 0.416010 and 0.400890. | Compare matched original/edited texts to isolate how sentence splitting and lexical diversity affect the score. |
+| EV03, EV09 still return unsure | Signal one, signal two, combining rule: the 100-word inner blend and the whole-text style measurements leave combined scores 0.428137 and 0.490470. | Evaluate the blend and mixed-origin passages on held-out examples; an arithmetic check already shows that dropping Binoculars alone would not make these two AI-labelled. |
+| EV04 still returns unsure | Signal one, signal two, combining rule: model 0.6114 and style 0.5 still combine to 0.577980, now farther below the AI cutoff. | Test the unusual-vocabulary hypothesis against a matched control before changing a signal. |
+| PI01, PI02 still reach their human-label goal | Combining rule and label mapping: normal scoring yields 0.323750 and 0.143080. There is no evidence that the injected instructions gained authority. | Compare instruction-bearing and instruction-free controls; keep label-goal failure separate from instruction-following claims. |
+| Criterion 3 misses at 3/5 | Label mapping: the declared 0.80 threshold moves the 0.619604 AI fixture to unsure; the older 0.40/0.45 mismatch also remains. | Keep this original target and miss on record. Evaluate any later policy change explicitly instead of rewriting the oracle to manufacture a pass. |
+| Criterion 5 misses at 6/10 | Route: present invalid creator IDs are passed unchanged into the rejection log. | Normalize invalid IDs to `unknown` before logging and test the same ten request shapes. |
 
+Other limits remain even where the attack policy said HELD: the human-reference
+family now abstains on all seven scored texts; short or non-Latin text can be
+rejected by the existing style rules; and the long MF08 input is scored with
+a 400-token model view but full-text style measurements. These outcomes do
+not establish correct authorship attribution or universal input coverage.
+
+I stopped after one declared threshold change and one complete after attack
+run plus three trials per criterion. That preserves a comparison attributable
+to one setting, including its costs. A later improvement should use a separate
+validation cohort before claiming that the new boundary generalizes.
 
 **The trade I'd make if this ran for real:**
 
-<!-- Two sentences. Fewer wrong accusations means more AI text getting through.
-     Say which way you'd go and WHO PAYS FOR IT. -->
-
+I would favor fewer false accusations and make the larger unsure group
+reviewable, accepting that more AI-generated text will go unflagged. Human
+writers face fewer incorrect AI labels, while reviewers and the platform bear
+more review work and missed detections; this detector alone should not decide
+a writer's credibility.
 
 
 <!-- ═════════════════════════════════════════════════════════════════════
@@ -2306,9 +2887,9 @@ made for this review. The local checkpoint is
        [x] Ten audit log entries pasted as text
        [x] Five criteria across three trials
        [x] A diagnosis for every miss and every broken attack — stage AND mechanism
-       [ ] One improvement, with Attack Run — After
-       [ ] What's Still Broken, including the production trade
-       [ ] At least four new commits
+       [x] One improvement, with Attack Run — After
+       [x] What's Still Broken, including the production trade
+       [x] At least four new commits
        [ ] The SAME repository URL as last unit
 
      Do not delete and recreate this repository.

@@ -1,0 +1,33 @@
+{
+  "single_service_change_verified": true,
+  "changed_setting": "AI_THRESHOLD",
+  "before": 0.6,
+  "after": 0.8,
+  "baseline_commit": "a399b68a982dd35c47c7ea786aec784b9eb3619b",
+  "source_sha256_after": {
+    "app.py": "453195a5ae08e6bedbef03e3adc5c090ccfe643210d1090ac09e318bc909ed64",
+    "audit.py": "9ee1bc681d5ebbd33496c7002cd4c8417deaa572399a66b54c9d668d40b48461",
+    "config.py": "b279ecb91ef88b9127af777b45d6e1dcb39d5ecd5b649a4f3eb361647c2ac540",
+    "detector.py": "9d5d39f4c7f6397a8aee88b636c67b070cfd6d7bb7146c630401da8535137b68",
+    "binoculars_signal.py": "83fb8a95999f878d4e77f914ab23e0862a7c7e895271043f0abd85ed2025a6f9",
+    "scoring.py": "b257bdde7abca8473f3ff8f951ad3347b60bf117a51c9f9e5dbd2b5b25c8c7af",
+    "stylometry.py": "b98428e8496775570a400f5c8ec6177a0d3e61919957deb8cd69f3cc2a76da8d",
+    "appeals.py": "ad6e29435dcf6d60cacf843c6e8552884e491710948d36873186876d2a16b237",
+    "submissions.py": "033ec1b3d6872c12cfa34c5f0f7c76d69e5aebb676737773a9b4ce7f8780bb53",
+    "verification.py": "c02e0bbb53c8877a6defdb80ce2c1fceb34334805e82e8688f3ffd8e1030579e",
+    "criteria.md": "d0841cb6aadbc614cb5a30462fd10dd83b8eb79dcc659da264a7abacdf7f51cd",
+    "scenarios.py": "72a8bcd10244f02936080a039b96e35ef796546d13ac5c8bc295cc2c0e099d12",
+    "run_eval.py": "3aed0e72f45012a4e07c906d8f5f3357d555308fb4112852361bfde38eb46e05",
+    "run_paced_attacks.py": "e8617e2c1065d0624ccbbd1ca6561b37714f54e3caf234c8df0e8dc1247a6f2b",
+    "run_attacks.py": "5ed60d52a623e49c3d33aaac97dda43a7f04d1bdd156c109379d7fe5d4aa32d0",
+    "eval_samples/samples.json": "6dd2f8824b3bf32392b3986acfef00d8efff569f1cb55e365bc4ede3d5788696"
+  },
+  "all_other_service_and_runner_files_unchanged": true,
+  "criteria_and_fixtures_unchanged": true,
+  "separate_test_maintenance": {
+    "file": "test_appeals.py",
+    "change": "The weighting-only unit test temporarily patches its own AI threshold to 0.60 to isolate weight effects. No live service or criterion oracle is patched.",
+    "timing": "After both live after runs",
+    "sha256_after": "14a1725d7893ca3d1e88ecc5d221599a41421634db0ba59cbc5be7acccced60f"
+  }
+}

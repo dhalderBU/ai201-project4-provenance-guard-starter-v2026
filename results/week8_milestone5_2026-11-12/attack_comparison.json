@@ -1,0 +1,148 @@
+{
+  "before": {
+    "held": 41,
+    "broke": 15
+  },
+  "after": {
+    "held": 47,
+    "broke": 9
+  },
+  "family_counts_after": {
+    "evasion": {
+      "inputs": 10,
+      "held": 3,
+      "broke": 7
+    },
+    "false_positive": {
+      "inputs": 8,
+      "held": 8,
+      "broke": 0
+    },
+    "prompt_injection": {
+      "inputs": 6,
+      "held": 4,
+      "broke": 2
+    },
+    "malformed": {
+      "inputs": 20,
+      "held": 20,
+      "broke": 0
+    },
+    "flood_same_creator": {
+      "inputs": 12,
+      "held": 12,
+      "broke": 0
+    }
+  },
+  "http_status_counts": {
+    "200": 21,
+    "400": 32,
+    "429": 3
+  },
+  "all_requests_statuses_and_scores_identical": true,
+  "label_changes": [
+    {
+      "id": "FP02",
+      "before": "ai",
+      "after": "unsure",
+      "combined_score": 0.699470952380952
+    },
+    {
+      "id": "FP03",
+      "before": "ai",
+      "after": "unsure",
+      "combined_score": 0.6908722110238241
+    },
+    {
+      "id": "FP04",
+      "before": "ai",
+      "after": "unsure",
+      "combined_score": 0.6931740698778495
+    },
+    {
+      "id": "FP05",
+      "before": "ai",
+      "after": "unsure",
+      "combined_score": 0.7950036007684792
+    },
+    {
+      "id": "FP06",
+      "before": "ai",
+      "after": "unsure",
+      "combined_score": 0.7121529791771907
+    },
+    {
+      "id": "FP07",
+      "before": "ai",
+      "after": "unsure",
+      "combined_score": 0.70712
+    },
+    {
+      "id": "MF08",
+      "before": "ai",
+      "after": "unsure",
+      "combined_score": 0.6345361319963677
+    }
+  ],
+  "verdict_changes": [
+    {
+      "id": "FP02",
+      "before": "BROKE",
+      "after": "HELD"
+    },
+    {
+      "id": "FP03",
+      "before": "BROKE",
+      "after": "HELD"
+    },
+    {
+      "id": "FP04",
+      "before": "BROKE",
+      "after": "HELD"
+    },
+    {
+      "id": "FP05",
+      "before": "BROKE",
+      "after": "HELD"
+    },
+    {
+      "id": "FP06",
+      "before": "BROKE",
+      "after": "HELD"
+    },
+    {
+      "id": "FP07",
+      "before": "BROKE",
+      "after": "HELD"
+    }
+  ],
+  "remaining_broken": [
+    "EV01",
+    "EV02",
+    "EV03",
+    "EV04",
+    "EV05",
+    "EV06",
+    "EV09",
+    "PI01",
+    "PI02"
+  ],
+  "false_positive_family": {
+    "before_ai_labels": 6,
+    "after_ai_labels": 0,
+    "inputs": 8,
+    "scored": 7,
+    "after_unsure": 7,
+    "after_human": 0,
+    "rejected": 1
+  },
+  "evading_ai_family": {
+    "before_ai_labels": 1,
+    "after_ai_labels": 1,
+    "inputs": 10,
+    "scored": 8,
+    "after_human": 2,
+    "after_unsure": 5,
+    "rejected": 2
+  }
+}

@@ -80,6 +80,9 @@ class AppealTests(unittest.TestCase):
                 else:
                     self.assertEqual(body["message"], appeals.CONFIRMATION)
 
+    # Fix this test's boundary so it isolates the two weighting rules from
+    # later changes to the service's operational label threshold.
+    @patch.object(config, "AI_THRESHOLD", 0.60)
     def test_appeal_weights_change_the_outcome_without_changing_submit_weights(self):
         self.seed_decision()
         with patch("detector.model_signal", return_value=0.9), patch(

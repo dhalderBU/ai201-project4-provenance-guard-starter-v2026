@@ -1,0 +1,44 @@
+{
+  "single_service_change": "AI_THRESHOLD 0.60 -> 0.80",
+  "all_other_service_harness_criteria_and_fixture_hashes_unchanged": true,
+  "attack_inputs_unchanged": true,
+  "attack_rows_before_and_after": 56,
+  "attack_statuses_and_scores_identical": true,
+  "attack_held_before": 41,
+  "attack_held_after": 47,
+  "attack_broke_before": 15,
+  "attack_broke_after": 9,
+  "criteria": 5,
+  "trials_each_before_and_after": 3,
+  "eval_submit_count": 105,
+  "eval_appeal_count": 15,
+  "eval_http_status_counts": {
+    "200": 81,
+    "400": 24
+  },
+  "eval_audit_count": 135,
+  "eval_scores_and_statuses_identical_before_after": true,
+  "eval_three_trials_identical_metrics": true,
+  "eval_submission_label_changes": 24,
+  "appeal_majority_changes": 9,
+  "after_criteria_met": [
+    1,
+    2,
+    4
+  ],
+  "after_criteria_missed": [
+    3,
+    5
+  ],
+  "total_new_audit_entries": 191,
+  "live_log_count": 847,
+  "focused_tests_passed": 45,
+  "initial_focused_tests_passed": 33,
+  "unit_test_maintenance": "test_appeals.py: fixed a 0.60 threshold within the weighting unit test only, after live measurements; operational config remains 0.80 and the evaluation runner/oracle are unchanged.",
+  "readme_prefix_sha256": "dfbd4dcbde3f30049cac21f2e04547a3858b47678e3e40bf35a4196f59a1c9d3",
+  "readme_attack_pairs_verified": 56,
+  "readme_criterion_rows_verified": 5,
+  "readme_real_json_examples_verified": 5,
+  "readme_after_audit_entries_verified": 10,
+  "logs_append_only_verified": true
+}
