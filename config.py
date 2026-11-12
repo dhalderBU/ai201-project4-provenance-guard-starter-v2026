@@ -28,8 +28,8 @@ DEBUG = os.getenv("AI201_DEBUG", "1") == "1" and HOST in ("127.0.0.1", "localhos
 
 # ─── The local model ─────────────────────────────────────────────────────────
 # Your first signal runs a language model ON YOUR OWN MACHINE. No account, no
-# key, no card. It downloads about 550 MB the first time — do that before
-# class, not during it.
+# key, no card. Model weights download on first use; GPT-2 Large and Medium
+# together need roughly 4.5 GB for their FP32 weights.
 #
 # What it measures: how *predictable* your text is to a language model. Text a
 # model finds easy to predict tends to be text a model wrote.
@@ -39,12 +39,18 @@ DEBUG = os.getenv("AI201_DEBUG", "1") == "1" and HOST in ("127.0.0.1", "localhos
 # takes a second or two. That cost is part of what you're learning: this is
 # what running a model inline in a request actually looks like.
 
-DETECTOR_MODEL = os.getenv("AI201_DETECTOR_MODEL", "gpt2")
+DETECTOR_MODEL = os.getenv("AI201_DETECTOR_MODEL", "gpt2-large")
+
+# Both model signals use the same device. Auto prefers CUDA, then Apple's MPS
+# GPU backend, then CPU. An explicit unavailable device produces an error.
+INFERENCE_DEVICE = os.getenv("AI201_DEVICE", "auto").strip().lower()
 
 # Longer text gives a steadier reading but takes longer. 400 tokens is roughly
 # 300 words, which is enough for the signal to mean something.
 DETECTOR_MAX_TOKENS = 400
 
+DETECTOR_MIDPOINT = 15.3
+DETECTOR_STEEPNESS = 4.6 #5.77
 
 # ─── Scoring (Milestone 4) ───────────────────────────────────────────────────
 # How much each signal counts toward the combined score.
@@ -52,8 +58,13 @@ DETECTOR_MAX_TOKENS = 400
 # The model contributes 70% and style contributes 30%. Both scores point
 # toward AI as they increase; the weights sum to 1.0.
 
-WEIGHT_MODEL_SIGNAL = 0.7
-WEIGHT_STYLE_SIGNAL = 0.3
+WEIGHT_MODEL_SIGNAL = 0.65
+WEIGHT_STYLE_SIGNAL = 0.35
+
+# Within the model component, use this blend when Binoculars contributes.
+# These weights sum to 1.0 and are separate from the model/style weights above.
+MODEL_WEIGHT_PERPLEXITY = 0.5
+MODEL_WEIGHT_BINOCULARS = 0.5
 
 
 # Appeals compare three text variants with more weight on style (criteria.md). slightly relax the model since the person is asking for rewview as the person may have written instead of AI
@@ -93,10 +104,9 @@ AI_THRESHOLD = 0.60
 # an hour, and a script sending a thousand variations to map your thresholds.
 # Your README has to say why your numbers and not others.
 
-RATE_LIMITING_ENABLED = os.getenv("AI201_RATE_LIMITS", "1") == "0"
-#RATE_LIMITING_ENABLED = os.getenv("AI201_RATE_LIMITS", "1") == "1"
+RATE_LIMITING_ENABLED = os.getenv("AI201_RATE_LIMITS", "1") == "1"
 
-RATE_LIMIT_PER_MINUTE = 9
+RATE_LIMIT_PER_MINUTE = 900
 RATE_LIMIT_PER_DAY = 400
 
 # Flask-Limiter warns loudly without this. In-memory is right for one laptop
@@ -118,31 +128,38 @@ RESULTS_DIR = ROOT / "results"
 # Binoculars signal (Hans et al., 2024): a second model-side score that divides
 # the detector's perplexity by a cross-perplexity, so text that is predictable
 # only because its TOPIC is predictable stops scoring as AI. Used by
-# binoculars_signal.py; averaged 50/50 with model_signal in app.py.
+# binoculars_signal.py; blended with model_signal through scoring.py.
 
-# The second ("performer") model. Must share gpt2's tokenizer: distilgpt2 (~330 MB,
-# fast) or gpt2-medium (~1.5 GB, separates better). None = single-model mode, which
-# uses the detector's own entropy instead and needs no extra download.
-BINOCULARS_PERFORMER = "distilgpt2"
+# Set AI201_BINOCULARS=0 before starting the process to skip all Binoculars
+# computation and performer loading. Perplexity and style remain active.
+
+BINOCULARS_ENABLED = True
+#BINOCULARS_ENABLED = os.getenv("AI201_BINOCULARS", "1") == "1"
+
+# The second ("performer") model must share the observer's tokenizer.
+# None = single-model mode, which uses the detector's own entropy instead
+# and needs no extra download. It does not disable Binoculars computation.
+BINOCULARS_PERFORMER = os.getenv("AI201_BINOCULARS_PERFORMER", "gpt2-medium")
 
 # The raw Binoculars ratio B that maps to a 0.5 score. B runs LOW for AI text, so
 # B below this scores toward 1 (AI) and above it toward 0 (human). Its scale depends
-# on the model pair, so it must be re-fit whenever BINOCULARS_PERFORMER changes.
-# Fit on 2026-11-10 from 3 ai + 2 human samples (rule 1 gave 0.849, rule 2 0.830).
-BINOCULARS_MIDPOINT = 0.85
+# on the model pair, so it must be re-fit whenever either model changes.
+# Fit for GPT-2 Large/Medium on 2026-11-11 using 150 AI + 150 human HC3
+# answers of 50–100 words, with a separate 300-answer validation split.
+# See results/calibration_2026-11-11_large_medium/hc3_50_100/report.md.
+BINOCULARS_MIDPOINT = 0.762
 
-# How sharply the 0-1 score moves either side of the midpoint. With a GPT-2 pair the
-# useful range of B is narrow (~0.65-0.95), so this is steeper than model_signal's 1.6.
-# Lower it if scores pile up at 0 and 1; raise it if everything sits near 0.5.
-BINOCULARS_STEEPNESS = 20.0
+# How sharply the 0-1 score moves either side of the midpoint. Fitted together
+# with the midpoint above; refit both when changing the model pair.
+BINOCULARS_STEEPNESS = 25 #35.5
 
-# Below this many words the model term is the perplexity signal alone; at or above
-# it, perplexity and Binoculars are averaged. Binoculars loses accuracy on short
-# input (paper), and on our short samples it ranked a plain human paragraph as more
-# AI-like than an AI one. Chosen from our data: 100 catches the short AI sample
-# without changing any human label. The score is still computed and returned below
-# the threshold (binoculars_used: false) so eval reports show what it would have said.
-BINOCULARS_MIN_WORDS = 100
+# Below this many whitespace-separated words, use perplexity alone for the
+# model component. At or above it, use 70% perplexity and 30% Binoculars.
+# This 250-word gate was selected by the user after the short-text comparison;
+# the earlier calibration reports record the previous gate and blend.
+# When enabled, Binoculars is still computed below the gate, with
+# binoculars_used: false.
+BINOCULARS_MIN_WORDS = 50
 
 # Positions skipped at the start of the text when averaging, because the first few
 # tokens are high-surprisal regardless of author. 0 = use every position. Changing
@@ -152,23 +169,23 @@ BINOCULARS_SKIP_TOKENS = 0
 # ── How to calibrate ─────────────────────────────────────────────────────────
 # Samples: *.json files with a "text" field, named with "human", "ai" or
 # "borderline" so the scripts can label them. Borderline files are scored but
-# not fitted. Aim for 5+ per class, mixed lengths, more than one generator and
-# more than one human writer, including plainly-written human text.
+# not fitted. The prepared short-text set has separate calibration/validation
+# folders. Fit only on calibration; use validation to evaluate fixed settings.
+# Include other generators, writers and lengths before generalizing the results.
 #
-# 1. Fit the Binoculars midpoint/steepness (re-run after changing PERFORMER or
-#    SKIP_TOKENS, since the B scale moves with them):
-#        python calibrate.py Milestone4_test_sample samples --fit
+# 1. Fit the Binoculars midpoint/steepness (re-run after changing either model
+#    or SKIP_TOKENS, since the B scale moves with them):
+#        python calibrate.py calibration_samples/hc3_50_100/calibration --fit --max-fpr 0.2
 #    Prints one row per sample (ppl, raw B, both signals), then two answers:
 #    rule 1 = logistic fit (gives midpoint AND steepness), rule 2 = highest-recall
 #    midpoint that keeps human false positives under --max-fpr (default 0.4).
-#    If they agree, use rule 1; if rule 2 is higher, prefer it. Copy the numbers
-#    into BINOCULARS_MIDPOINT / BINOCULARS_STEEPNESS, re-run without --fit to
-#    confirm binoc_sig reads high for ai and low for human.
+#    These rules optimize different objectives. Check their effect on the
+#    combined score before choosing a curve; the current values use rule 1.
 #
 # 2. Check the combined score (weights + AI cutoff), which is where the FPR
 #    ceiling actually has to hold:
-#        python calibrate_combined.py Milestone4_test_sample samples --min-words 100
-#    Prints every signal and the combined score exactly as /submit computes it
+#        python calibrate_combined.py calibration_samples/hc3_50_100/calibration --max-fpr 0.2 --min-words 80
+#    Prints every signal and the combined score with the same blend rounding
 #    (including BINOCULARS_MIN_WORDS), then for each WEIGHT_MODEL_SIGNAL the band
 #    of AI cutoffs that keeps human-flagged <= --max-fpr. A wide band means the
 #    data isn't constraining the cutoff; add harder samples before changing it.

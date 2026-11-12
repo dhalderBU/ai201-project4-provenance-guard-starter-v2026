@@ -25,12 +25,78 @@ You'll see `[WARN] Detector model — not downloaded yet`:
 python detector.py
 ```
 
-That downloads about 550 MB and scores a sample.
+That downloads GPT-2 Large on first use and scores a sample. Its FP32 weights
+need roughly 3.1 GB; the Binoculars performer, GPT-2 Medium, adds roughly 1.4 GB.
 
 > **No API key for this pair.** Nothing here calls a hosted service. The model
 > that reads your text runs on your own laptop.
 
 ---
+
+## GPU inference
+
+The default pair is GPT-2 Large (perplexity and Binoculars observer) and GPT-2
+Medium (Binoculars performer). Both models and their input tensors use the same
+device. `AI201_DEVICE=auto`, the default, prefers CUDA, then Apple MPS, then CPU.
+
+On an Apple Silicon Mac, start the service with:
+
+```bash
+AI201_DEVICE=mps .venv/bin/python app.py
+```
+
+Use `AI201_DEVICE=cuda` on a machine with a CUDA-capable GPU and PyTorch build,
+or `AI201_DEVICE=cpu` to force CPU inference. An explicitly requested device
+must be available; the service reports an error instead of silently using CPU.
+Apple GPU support uses [PyTorch's MPS backend](https://docs.pytorch.org/docs/2.14/notes/mps.html).
+
+To download both models and score a sample without writing submission logs:
+
+```bash
+AI201_DEVICE=mps .venv/bin/python binoculars_signal.py
+```
+
+The command prints the loaded model pair and device before the scores. After
+the service has scored a submission, `GET /health` reports `inference_device`
+as `mps:0` on the Apple GPU (or the selected CUDA/CPU device); it is `null`
+before the detector loads.
+
+To switch Binoculars off completely, stop the running server and restart with:
+
+```bash
+AI201_BINOCULARS=0 AI201_DEVICE=mps .venv/bin/python app.py
+```
+
+This skips its computation and GPT-2 Medium loading. GPT-2 Large still provides
+perplexity, and the final score remains 70% perplexity plus 30% style at every
+input length. `GET /health` reports `binoculars_enabled: false`.
+`BINOCULARS_ENABLED` in `config.py` reads this switch; `AI201_BINOCULARS=1`
+enables it again. Restart after changing it so any previously loaded performer
+is released. Setting `BINOCULARS_PERFORMER = None` selects single-model
+Binoculars and does not turn the signal off.
+
+`calibrate_combined.py` also honors the switch. `calibrate.py` requires
+Binoculars enabled because it fits that signal.
+
+Optional model overrides are `AI201_DETECTOR_MODEL` and
+`AI201_BINOCULARS_PERFORMER`. Restart the service after changing these settings.
+The GPT-2 Large/Medium Binoculars curve uses midpoint `0.762`, steepness `35.5`,
+and a 250-word minimum for inclusion in the model score. Below 250 words the
+model score uses perplexity alone; at 250 words or more it blends 70%
+perplexity with 30% Binoculars. These weights are `MODEL_WEIGHT_PERPLEXITY`
+and `MODEL_WEIGHT_BINOCULARS` in `config.py`. The outer model/style weights
+remain 70/30. The
+[short-text calibration report](results/calibration_2026-11-11_large_medium/hc3_50_100/report.md)
+records the earlier 50-word gate and 50/50 blend.
+Restart after changing scoring settings too. GPU support retains the existing precision.
+
+The active style signal uses a 50-word MATTR window with anchors `0.68` (AI)
+and `0.82` (human). See the
+[stylometry review](results/stylometry_review_2026-11-11/report.md) for the measured tradeoffs.
+Rate limits are enabled by default. For a batch of local API evaluations, use
+`AI201_RATE_LIMITS=0 AI201_DEVICE=mps .venv/bin/python app.py`; omit the rate-limit
+override for normal use. The calibration scripts that call scoring functions
+directly are not subject to API rate limits.
 
 ## Your first five minutes
 
@@ -218,12 +284,12 @@ Say it plainly, because the arithmetic is the point:
 | What has to be in memory | Roughly |
 |---|---|
 | `torch` | ~200–800 MB depending on the build |
-| the `gpt2` weights | ~550 MB on disk, loaded into RAM to score |
+| GPT-2 Large + GPT-2 Medium weights | ~4.5 GB at FP32, plus inference overhead |
 | Flask, gunicorn, your code | the rest |
 | **A free tier gives you** | **512 MB** |
 
 That's over budget before a single request arrives — and a free host has no
-persistent disk, so the 550 MB download starts again after every idle
+persistent disk, so the model downloads start again after every idle
 spin-down. There is no configuration that fixes this. The model is the size it
 is.
 

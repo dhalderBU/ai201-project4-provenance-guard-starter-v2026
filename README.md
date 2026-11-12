@@ -44,9 +44,9 @@ window). I treat the result as a heuristic, not proof of authorship.
 
 1. I accept `text` and an optional `creator_id` at `POST /submit`.
 2. I reject invalid JSON, empty text, and text that is too short with HTTP `400`.
-3. I calculate perplexity with `detector.model_signal(text)`. At 100 words or
-   more, I blend it 50/50 with Binoculars when available; otherwise I use
-   perplexity alone.
+3. I calculate perplexity with `detector.model_signal(text)`. Below 250 words,
+   the model score is perplexity alone. At 250 words or more, I use 70%
+   perplexity and 30% Binoculars when available.
 4. I calculate sentence-length spread, punctuation density, and MATTR with
    `stylometry.style_signal(text)`.
 5. I combine 70% of the model score with 30% of the style score in `scoring.py::combine_signals`.
@@ -72,6 +72,30 @@ to the audit log, and `GET /content/<id>` returns the current status.
 
 ## Signals and Scoring
 
+The current model pair is **GPT-2 Large** for perplexity and the Binoculars
+observer, with **GPT-2 Medium** as the Binoculars performer. Device selection
+is automatic: CUDA when available, then Apple MPS, then CPU. Set
+`AI201_DEVICE=mps` to require the Apple GPU. See [GPU setup](RUNNING.md#gpu-inference).
+
+The Binoculars curve was recalibrated on 2026-11-11 using 150 human and 150 AI
+HC3 answers of 50–100 words. The midpoint is `0.762`, steepness is `35.5`, and
+Binoculars now contributes at 250 words or more, using a 70/30
+perplexity/Binoculars blend. In the earlier experiment with a 50-word cutoff
+and 50/50 blend,
+human answers flagged as AI fell from 50/150 to 3/150, while AI answers correctly
+flagged changed from 148/150 to 144/150. The 70/30 model/style weights, label
+thresholds, and perplexity mapping stay the same. See the
+[calibration report](results/calibration_2026-11-11_large_medium/hc3_50_100/report.md).
+Those results describe the earlier configuration, not the current 250-word
+gate. Historical milestone results below remain records of their original runs.
+
+The current rule passed 78 tests and 306 real API checks, including human and
+AI inputs at 249, 250, and 251 words. On the saved 300-answer short-text check,
+AI detection increased from 144/150 to 150/150, while human false AI labels
+increased from 2/150 to 51/150. These short inputs now use perplexity alone as
+the model component. See the
+[250-word rule verification](results/blend_70_30_250_words_verification.json).
+
 <!-- For each signal: what property it measures, why that might differ between
      human and AI writing, and WHAT IT CAN'T SEE.
 
@@ -83,7 +107,7 @@ to the audit log, and `GET /content/<id>` returns the current status.
 **What it measures:**
 
 I use `detector.model_signal(text)` to calculate perplexity with a local model,
-GPT-2 by default (`config.DETECTOR_MODEL`). Lower perplexity means the text is
+GPT-2 Large by default (`config.DETECTOR_MODEL`). Lower perplexity means the text is
 easier for that model to predict. I convert it to an AI-oriented score:
 
 ```text
@@ -96,24 +120,36 @@ mean more AI-like text; the model scores text rather than identifying its author
 For my stretch feature, I use `binoculars_signal.py::binoculars_signal`, inspired
 by Hans et al. (2024),
 [*Spotting LLMs With Binoculars: Zero-Shot Detection of Machine-Generated Text*](https://proceedings.mlr.press/v235/hans24a.html),
-published at ICML 2024. I use GPT-2 and DistilGPT-2 with matching tokenizer
-vocabularies. My 50/50 blend is a scoring choice for this project, based on
-results from multiple trials.
+published at ICML 2024. I use GPT-2 Large and GPT-2 Medium with matching tokenizer
+vocabularies. The current blend assigns 70% to perplexity and 30% to Binoculars
+within the model component, giving perplexity more influence.
 
 In `app.py::submit`, I use the blend only when Binoculars succeeds and
-`len(text.split()) >= BINOCULARS_MIN_WORDS` (currently `100`):
+`len(text.split()) >= BINOCULARS_MIN_WORDS` (currently `250`):
 
 ```python
 if binoculars_used:
-    model_score = round(0.5 * perplexity_score + 0.5 * binoculars_score, 4)
+    model_score = round(0.7 * perplexity_score + 0.3 * binoculars_score, 4)
 else:
     model_score = perplexity_score
 ```
 
-I still calculate and return Binoculars for shorter inputs, but set
+`scoring.py::combine_model_signals` implements this blend for both the API and
+`calibrate_combined.py`, using `MODEL_WEIGHT_PERPLEXITY = 0.7` and
+`MODEL_WEIGHT_BINOCULARS = 0.3` from `config.py`.
+
+When enabled, I still calculate and log Binoculars for shorter inputs, but set
 `binoculars_used` to `false`. I also use perplexity alone if Binoculars raises
 `detector.DetectorUnavailable`. I then combine 70% of the model score with 30% of the style score through
 `scoring.py::combine_signals`.
+
+To turn Binoculars off completely, restart with
+`AI201_BINOCULARS=0 AI201_DEVICE=mps .venv/bin/python app.py`.
+This skips Binoculars inference and GPT-2 Medium loading. Every input length
+uses perplexity alone as `model_score`, followed by the usual 70/30 model/style
+combination. `GET /health` reports `binoculars_enabled: false`; the logs record
+`binoculars_score: null` and `binoculars_used: false`. Setting the performer to
+`None` selects the single-model entropy calculation and is not a full off switch.
 
 **Why that might differ between human and AI writing:**
 
@@ -163,7 +199,7 @@ and MATTR into AI-oriented contributions. With the current settings:
 spread_ai = clamp01((0.60 - spread) / (0.60 - 0.25))
 punct_ai = clamp01((density - 0.06) / (0.14 - 0.06))
 mattr = moving_average_ttr(text, 50)
-mattr_ai = clamp01((0.86 - mattr) / (0.86 - 0.72))
+mattr_ai = clamp01((0.82 - mattr) / (0.82 - 0.68))
 
 style_score = 0.50 * spread_ai + 0.20 * punct_ai + 0.30 * mattr_ai
 ```
@@ -181,7 +217,7 @@ named constants at the top of `stylometry.py`.
 | Spread anchors | `SPREAD_AI_ANCHOR`, `SPREAD_HUMAN_ANCHOR` | `0.25`, `0.60` |
 | Structural punctuation anchors | `PUNCTUATION_HUMAN_ANCHOR`, `PUNCTUATION_AI_ANCHOR` | `0.06`, `0.14` marks per word |
 | MATTR window | `TTR_WINDOW` | `50` word tokens |
-| Active MATTR anchors | `MATTR_AI_ANCHOR`, `MATTR_HUMAN_ANCHOR` | `0.72`, `0.86` |
+| Active MATTR anchors | `MATTR_AI_ANCHOR`, `MATTR_HUMAN_ANCHOR` | `0.68`, `0.82` |
 | Whole-text TTR anchors when `TTR_WINDOW = 0` | `TTR_AI_ANCHOR`, `TTR_HUMAN_ANCHOR` | `0.62`, `0.80` |
 | Weights | `STYLE_WEIGHT_SPREAD`, `STYLE_WEIGHT_PUNCTUATION`, `STYLE_WEIGHT_TTR` | `0.50`, `0.20`, `0.30` |
 | Style decision thresholds | `STYLE_AI_THRESHOLD`, `STYLE_UNCERTAIN_THRESHOLD` | `0.65`, `0.40` |
@@ -208,6 +244,14 @@ model/style combination; these thresholds do not change that combining rule.
 
 These anchors and weights are project choices that need evaluation on labeled
 samples; they are not authorship boundaries or calibrated probabilities.
+
+The MATTR anchors were updated on 2026-11-11 after a calibration comparison.
+On 300 additional HC3 answers of 50–100 words, correctly labeled human answers
+increased from 89/150 to 100/150, human false AI labels changed from 3/150 to
+2/150, and AI detections stayed at 144/150. The 50-word window and other weights
+were retained. See the [stylometry review](results/stylometry_review_2026-11-11/report.md).
+These results are specific to that sample set; earlier recorded scores used
+the settings active at the time.
 
 **Why that might differ between human and AI writing:**
 
@@ -273,20 +317,20 @@ wrote the text.
 **What it measures:**
 
 I use `binoculars_signal.py` to compare the text's predictability with a
-baseline from two related language models: GPT-2 as the observer and
-DistilGPT-2 as the performer. The models use matching tokenizer vocabularies.
-GPT-2 measures its average surprise at the actual next tokens
+baseline from two related language models: GPT-2 Large as the observer and
+GPT-2 Medium as the performer. The models use matching tokenizer vocabularies.
+GPT-2 Large measures its average surprise at the actual next tokens
 (log-perplexity). I divide that by its expected surprise at next tokens drawn
-from DistilGPT-2's predictions for the same text prefixes (cross-entropy).
+from GPT-2 Medium's predictions for the same text prefixes (cross-entropy).
 
 ```text
 B = log_perplexity / cross_entropy
-binoculars_score = 1 / (1 + exp(20.0 * (B - 0.85)))
+binoculars_score = 1 / (1 + exp(35.5 * (B - 0.762)))
 ```
 
 The code stores that cross-entropy under the name `cross_perplexity`.
 A lower raw ratio `B` becomes a higher AI-oriented score in `[0, 1]`;
-`B = 0.85` maps to `0.5`. The midpoint and steepness come from `config.py`.
+`B = 0.762` maps to `0.5`. The midpoint and steepness come from `config.py`.
 This score is a heuristic, not a calibrated probability of AI authorship.
 
 **Why that might differ between human and AI writing:**
@@ -305,10 +349,12 @@ drafts and editing history. [Hans et al.](https://arxiv.org/html/2401.12070v3#S5
 
 With the current configuration, my implementation reads only the first 400
 tokens, so later passages do not affect this signal. In `POST /submit`, I include it in the combined model score
-only when it is available and the input contains at least 100 whitespace-separated
-words. That cutoff is a project choice. My GPT-2/DistilGPT-2 setup and scoring
-settings need their own evaluation; the paper's reported accuracy does not
-establish this implementation's accuracy.
+only when it is available and the input contains at least 250 whitespace-separated
+words. The current cutoff is a project choice; the earlier short-text evaluation
+used a 50-word cutoff.
+The 50–59-word validation band has only ten examples per class; those results
+are preliminary. The paper's reported accuracy does not establish this
+implementation's accuracy.
 
 ### The combining rule
 
@@ -336,7 +382,7 @@ I use imaginary scores below to illustrate the flow; this is not a test run.
    the style signal's minimum of three sentences and 40 words.
 
 3. **Model score.** I assume `detector.model_signal(text)` returns `0.7`.
-   This passage is under 100 words, so I use perplexity alone.
+   This passage is under 250 words, so I use perplexity alone.
 
 4. **Style score.** I assume `stylometry.style_signal(text)` returns `0.30`;
    this is an illustrative value, not a measurement of the passage.
@@ -387,7 +433,7 @@ It lives in `scoring.py::combine_signals`
 
 I base the decision on the combined score when the signals disagree. The model
 score has more weight than the style score. When Binoculars is available and
-the input meets the 100-word minimum, the model score is a 50/50 blend of the
+the input meets the 250-word minimum, the model score is a 70/30 blend of the
 perplexity and Binoculars scores. The final label follows the combined score
 and its thresholds.
 
@@ -1069,15 +1115,16 @@ Sanity check before you ship it: paste in two or three paragraphs you know are h
 ### Stretch Feature 1 — Adding Binoculars as a third signal
 
 I added the Binoculars score alongside perplexity and style. For inputs of at
-least 100 words, when Binoculars is available, I use **35% perplexity, 35%
-Binoculars, and 30% style**. Each model signal receives half of the model's 70%
-weight. I average the two model scores first, then apply the 70/30 model/style
-rule in `scoring.py::combine_signals`.
+least 250 words, when Binoculars is available, I use **49% perplexity, 21%
+Binoculars, and 30% style**, before the model component's four-decimal rounding.
+I first blend 70% perplexity and 30% Binoculars using
+`scoring.py::combine_model_signals`, then apply the 70/30 model/style rule in
+`scoring.py::combine_signals`.
 
 For shorter inputs or when Binoculars is unavailable, I use **70% perplexity
-and 30% style**. The Binoculars paper reports reduced performance on shorter
-inputs. I chose 100 words as the cutoff for this project and use two signals
-below that cutoff because they performed better on the project's shorter samples.
+and 30% style**. The historical calibration reports used a 50-word cutoff and
+50/50 model blend; their measured results should not be attributed to this
+new 250-word rule.
 
 
 

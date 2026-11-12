@@ -35,6 +35,19 @@ LABEL_TEXT = {
 }
 
 
+def combine_model_signals(perplexity_score: float, binoculars_score: float) -> float:
+    """Blend available model signals using the configured 70/30 weights.
+
+    The caller applies the word-count gate and falls back to perplexity alone
+    when Binoculars is unavailable. Round the blended component as /submit does.
+    """
+    return round(
+        config.MODEL_WEIGHT_PERPLEXITY * perplexity_score
+        + config.MODEL_WEIGHT_BINOCULARS * binoculars_score,
+        4,
+    )
+
+
 def combine_signals(model_score: float, style_score: float) -> float:
     """
     Combine signals with 70% model weight and 30% style weight.
@@ -43,7 +56,7 @@ def combine_signals(model_score: float, style_score: float) -> float:
     Weights are named constants in config.py and sum to 1.0.
 
     Args:
-        model_score: from `detector.model_signal` — how predictable the text is.
+        model_score: perplexity alone or the configured perplexity/Binoculars blend.
         style_score: from `stylometry.style_signal` — the shape of the text.
 
     Returns:

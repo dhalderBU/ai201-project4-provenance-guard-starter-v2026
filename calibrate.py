@@ -23,6 +23,7 @@ for p in (HERE, Path.cwd()):
         sys.path.insert(0, str(p))
 
 from binoculars_signal import binoculars_score, binoculars_signal, ms, MIDPOINT, STEEPNESS  # noqa: E402
+import config  # noqa: E402
 
 TEXT_KEYS = ("text", "input", "content", "paragraph", "body", "sample", "prompt")
 
@@ -65,6 +66,8 @@ def main():
     ap.add_argument("--max-fpr", type=float, default=0.4,
                     help="false-positive ceiling for the threshold rule (default 0.4)")
     args = ap.parse_args()
+    if not config.BINOCULARS_ENABLED:
+        ap.error("Binoculars is disabled. Use AI201_BINOCULARS=1 to calibrate it, or calibrate_combined.py for perplexity/style only.")
 
     samples = []
     for folder in args.folders:

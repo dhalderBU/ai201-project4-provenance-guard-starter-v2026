@@ -30,21 +30,22 @@ TTR_AI_ANCHOR = 0.62
 TTR_HUMAN_ANCHOR = 0.80
 
 # ***deb..start stretch feature*** length-normalized TTR***
-# Whole-text TTR falls as text gets longer (more words -> more reuse), so with
-# fixed anchors every paragraph over ~130 words saturates at ttr_ai = 1.0 and
-# every paragraph under ~90 words reads as human, whoever wrote it.
+# Whole-text TTR tends to fall as text gets longer (more words -> more reuse),
+# so fixed anchors can confuse differences in length with writing style.
 #
-# Moving-average TTR (MATTR, Covington & McFall 2010) fixes that: slide a
+# Moving-average TTR (MATTR, Covington & McFall 2010) reduces that sensitivity: slide a
 # fixed window over the tokens, take the TTR inside each window, average.
-# The value then does not drift with length and one pair of anchors works
-# for 60-word and 170-word paragraphs alike.
+# Equal-sized windows improve length comparability, but topic and short-text
+# effects remain; the anchors still need evaluation on the intended inputs.
 #
 # TTR_WINDOW = 0 keeps the supplied whole-text behaviour. Any positive number
 # turns MATTR on with that window size (50 is the usual choice). Windowed TTR
 # runs higher than whole-text TTR on long inputs, so MATTR gets its own anchors.
 TTR_WINDOW = 50
-MATTR_AI_ANCHOR = 0.72
-MATTR_HUMAN_ANCHOR = 0.86
+# Selected on the HC3 calibration split and checked on a fresh 300-answer
+# sample of 50–100-word texts. See results/stylometry_review_2026-11-11/report.md.
+MATTR_AI_ANCHOR = 0.68
+MATTR_HUMAN_ANCHOR = 0.82
 # ***deb ..end of stretch feature*** length-normalized TTR***
 
 STYLE_WEIGHT_SPREAD = 0.50

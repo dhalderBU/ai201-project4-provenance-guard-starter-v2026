@@ -159,7 +159,10 @@ def health():
         "ok": True,
         "detector_model": config.DETECTOR_MODEL,
         "detector_loaded": loaded,
+        "device_setting": config.INFERENCE_DEVICE,
+        "inference_device": str(detector._model.device) if loaded else None,
         # ***deb..start stretch feature*** binocular***
+        "binoculars_enabled": config.BINOCULARS_ENABLED,
         "binoculars_performer": binoculars_performer,
         "binoculars_loaded": binoculars_loaded,
         # ***deb ..end of stretch feature*** binocular***
@@ -253,34 +256,31 @@ def submit():
     # detector's perplexity by a cross-perplexity so that text which is
     # predictable only because its TOPIC is predictable stops scoring as AI.
     #
-    # It fills the same 0.5 "model" slot as the perplexity signal rather than
-    # taking weight away from the style signals: the two are averaged into one
-    # model_score, which is what scoring.combine_signals() and the logs see.
+    # The model component uses the configured perplexity/Binoculars weights.
+    # scoring.combine_signals() then combines that component with style.
     #
     # If the second model can't load (no download yet, no disk), the route
     # degrades to the perplexity signal alone and says so in the response,
     # instead of failing every submission because of a stretch feature.
     import binoculars_signal
+    import scoring
 
-    # Binoculars is known to lose accuracy on short inputs (Hans et al., 2024),
-    # and on this project's short samples it ordered a plain-human paragraph as
-    # more AI-like than an actual AI paragraph. Below BINOCULARS_MIN_WORDS the
-    # model term is the perplexity signal alone; at or above it, the two are
-    # averaged. The Binoculars score is still computed and returned either way,
-    # so the eval reports can show what it would have said.
-    min_words = getattr(config, "BINOCULARS_MIN_WORDS", 100)
+    # Below 250 whitespace-separated words, use perplexity alone. At or above
+    # the gate, blend 70% perplexity with 30% Binoculars. When enabled, compute
+    # and log Binoculars below the gate too for evaluation.
+    min_words = config.BINOCULARS_MIN_WORDS
     word_count = len(text.split())
 
-    try:
-        binoculars_score = binoculars_signal.binoculars_signal(text)
-        binoculars_available = True
-    except detector.DetectorUnavailable:
-        binoculars_score = None
-        binoculars_available = False
+    binoculars_score = None
+    if config.BINOCULARS_ENABLED:
+        try:
+            binoculars_score = binoculars_signal.binoculars_signal(text)
+        except detector.DetectorUnavailable:
+            pass
 
-    binoculars_used = binoculars_available and word_count >= min_words
+    binoculars_used = binoculars_score is not None and word_count >= min_words
     if binoculars_used:
-        model_score = round(0.5 * perplexity_score + 0.5 * binoculars_score, 4)
+        model_score = scoring.combine_model_signals(perplexity_score, binoculars_score)
     else:
         model_score = perplexity_score
     # ***deb ..end of stretch feature*** binocular***
@@ -297,8 +297,6 @@ def submit():
 
 
     # Combine the signals and select the label and reader-facing sentence.
-    import scoring
-
     combined_score = scoring.combine_signals(model_score, style_score)
     label, confidence = scoring.score_to_label(combined_score)
     label_text = scoring.LABEL_TEXT[label]
@@ -341,8 +339,8 @@ def submit():
         "model_score": model_score,
         "style_score": style_score,
         # ***deb..start stretch feature*** binocular***
-        # model_score above is what the decision used (average of the two when
-        # Binoculars ran). These are its components, for the eval reports and
+        # model_score above is what the decision used (the weighted blend when
+        # Binoculars contributed). These are its components, for the eval reports and
         # for appeals.
         #------activate the below for
         #"perplexity_score": perplexity_score,
@@ -483,9 +481,14 @@ def get_log():
 def main():
     print(f"Provenance Guard on http://{config.HOST}:{config.PORT}")
     print(f"  detector model:  {config.DETECTOR_MODEL}")
+    print(f"  device setting:  {config.INFERENCE_DEVICE} (resolved when models load)")
     # ***deb..start stretch feature*** binocular***
-    performer = getattr(config, "BINOCULARS_PERFORMER", "distilgpt2")
-    print(f"  binoculars:      {performer or 'single-model mode (no second download)'}")
+    performer = getattr(config, "BINOCULARS_PERFORMER", "gpt2-medium")
+    binoculars_status = (
+        performer or 'single-model mode (no second download)'
+        if config.BINOCULARS_ENABLED else 'OFF (AI201_BINOCULARS=0)'
+    )
+    print(f"  binoculars:      {binoculars_status}")
     # ***deb ..end of stretch feature*** binocular***
     print(f"  rate limiting:   {'ON' if config.RATE_LIMITING_ENABLED else 'off (AI201_RATE_LIMITS=0)'}")
     print(f"  audit log:       {config.AUDIT_LOG}")

@@ -50,15 +50,37 @@ _tokenizer = None
 
 
 class DetectorUnavailable(RuntimeError):
-    """The model couldn't be loaded — no download yet, or no disk."""
+    """The model or requested inference device could not be loaded."""
 
 
 class TextTooShortError(ValueError):
     """The input has too few tokens for the detector to score."""
 
 
+def inference_device():
+    """Choose the shared model device, honoring an explicit override."""
+    import torch
+
+    requested = config.INFERENCE_DEVICE
+    if requested not in {"auto", "cpu", "cuda", "mps"}:
+        raise DetectorUnavailable(
+            f"Unknown AI201_DEVICE '{requested}'. Use auto, cpu, cuda, or mps."
+        )
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise DetectorUnavailable("AI201_DEVICE=cuda requested, but CUDA is unavailable.")
+    if requested == "mps" and not torch.backends.mps.is_available():
+        raise DetectorUnavailable("AI201_DEVICE=mps requested, but Apple's MPS GPU backend is unavailable.")
+    return torch.device(requested)
+
+
 def _load():
-    """Load the model once and keep it. First call downloads ~550 MB."""
+    """Load and cache the model on the selected device after successful setup."""
     global _model, _tokenizer
     if _model is not None:
         return _model, _tokenizer
@@ -73,16 +95,17 @@ def _load():
         ) from exc
 
     try:
-        _tokenizer = AutoTokenizer.from_pretrained(config.DETECTOR_MODEL)
-        _model = AutoModelForCausalLM.from_pretrained(config.DETECTOR_MODEL)
-        _model.eval()
+        device = inference_device()
+        tokenizer = AutoTokenizer.from_pretrained(config.DETECTOR_MODEL)
+        model = AutoModelForCausalLM.from_pretrained(config.DETECTOR_MODEL)
+        model.to(device).eval()
     except Exception as exc:  # noqa: BLE001
         raise DetectorUnavailable(
             f"Couldn't load '{config.DETECTOR_MODEL}': {exc}\n"
-            f"The first run downloads about 550 MB — check your connection and "
-            f"that you have disk space free."
+            "Check the selected device, available memory, and model download."
         ) from exc
 
+    _model, _tokenizer = model, tokenizer
     return _model, _tokenizer
 
 
@@ -104,7 +127,7 @@ def perplexity(text: str) -> float:
         truncation=True,
         max_length=config.DETECTOR_MAX_TOKENS,
     )
-    input_ids = encoded["input_ids"]
+    input_ids = encoded["input_ids"].to(model.device)
 
     # Two tokens is not enough to be surprised by anything.
     if input_ids.shape[1] < 3:
@@ -133,8 +156,14 @@ def model_signal(text: str) -> float:
     """
     ppl = perplexity(text)
 
-    midpoint = 45.0    # perplexity that scores 0.5
-    steepness = 1.6    # how sharply the score moves either side of it
+    #midpoint = 45.0    # perplexity that scores 0.5
+    #steepness = 1.6    # how sharply the score moves either side of it
+
+        # ***deb..start stretch feature*** detector calibration***
+    # (comment explaining why the constants moved to config)
+    midpoint = getattr(config, "DETECTOR_MIDPOINT", 45.0)      # perplexity that scores 0.5
+    steepness = getattr(config, "DETECTOR_STEEPNESS", 1.6)    # how sharply the score moves either side of it
+    # ***deb ..end of stretch feature*** detector calibration***
 
     # Logistic on log-perplexity. Low perplexity -> high AI score.
     score = 1.0 / (1.0 + (ppl / midpoint) ** steepness)
@@ -143,8 +172,8 @@ def model_signal(text: str) -> float:
 
 def warm_up() -> str:
     """Load the model without scoring anything. Run this before class."""
-    _load()
-    return f"{config.DETECTOR_MODEL} loaded and ready."
+    model, _ = _load()
+    return f"{config.DETECTOR_MODEL} loaded and ready on {model.device}."
 
 
 if __name__ == "__main__":
@@ -162,6 +191,7 @@ if __name__ == "__main__":
         )
         print("(no text given — scoring a sample)\n")
 
-    print(f"Loading {config.DETECTOR_MODEL} (first run downloads ~550 MB)…")
+    print(f"Loading {config.DETECTOR_MODEL} (weights download on first use)…")
+    print(warm_up())
     print(f"perplexity     {perplexity(text):.1f}")
     print(f"model_signal   {model_signal(text):.4f}   (higher = more likely AI)")

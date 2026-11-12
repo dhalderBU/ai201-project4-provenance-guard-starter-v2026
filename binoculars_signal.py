@@ -17,8 +17,11 @@ low cross-perplexity, so the ratio stays high.
 
 Two modes, chosen by config:
 
-    config.BINOCULARS_PERFORMER = "distilgpt2"   # true Binoculars (two models)
+    config.BINOCULARS_PERFORMER = "gpt2-medium"  # true Binoculars (two models)
     config.BINOCULARS_PERFORMER = None           # single-model fallback
+
+Set AI201_BINOCULARS=0 to disable both modes, including all model loading and
+inference from this module. Perplexity in detector.py can still run separately.
 
 With no performer, the cross-perplexity collapses to the observer's own
 entropy and B becomes NLL / entropy. Still useful, measurably weaker.
@@ -50,9 +53,9 @@ if not hasattr(ms, "_load"):
     )
 
 # ---- config with defaults, so this works even if config.py hasn't been edited
-PERFORMER = getattr(config, "BINOCULARS_PERFORMER", "distilgpt2")
-MIDPOINT = getattr(config, "BINOCULARS_MIDPOINT", 0.90)    # B that maps to 0.5
-STEEPNESS = getattr(config, "BINOCULARS_STEEPNESS", 12.0)
+PERFORMER = getattr(config, "BINOCULARS_PERFORMER", "gpt2-medium")
+MIDPOINT = getattr(config, "BINOCULARS_MIDPOINT", 0.762)    # B that maps to 0.5
+STEEPNESS = getattr(config, "BINOCULARS_STEEPNESS", 35.5)
 # Positions to leave out of the averages. The first few tokens of any text are
 # scored with almost no context, so they are high-surprisal whoever wrote them,
 # and on short inputs that burn-in can dominate the ratio. 0 = use every position.
@@ -61,26 +64,34 @@ SKIP_TOKENS = getattr(config, "BINOCULARS_SKIP_TOKENS", 0)
 _performer = None
 
 
+def _require_enabled():
+    if not config.BINOCULARS_ENABLED:
+        raise ms.DetectorUnavailable("Binoculars is disabled (AI201_BINOCULARS=0).")
+
+
 def _load_performer():
-    """Load the second model once. Must share the observer's tokenizer."""
+    """Load the second model on the observer's device with a matching vocabulary."""
     global _performer
+    _require_enabled()
     if _performer is not None or PERFORMER is None:
         return _performer
 
+    observer, obs_tok = ms._load()
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     try:
-        _performer = AutoModelForCausalLM.from_pretrained(PERFORMER).eval()
         perf_tok = AutoTokenizer.from_pretrained(PERFORMER)
+        if perf_tok.get_vocab() != obs_tok.get_vocab():
+            raise ms.DetectorUnavailable(
+                f"'{PERFORMER}' and '{config.DETECTOR_MODEL}' use different tokenizers. "
+                "Binoculars needs models with matching token vocabularies."
+            )
+        performer = AutoModelForCausalLM.from_pretrained(PERFORMER)
+        performer.to(observer.device).eval()
     except Exception as exc:  # noqa: BLE001
         raise ms.DetectorUnavailable(f"Couldn't load performer '{PERFORMER}': {exc}") from exc
 
-    _, obs_tok = ms._load()
-    if perf_tok.get_vocab() != obs_tok.get_vocab():
-        raise ms.DetectorUnavailable(
-            f"'{PERFORMER}' and '{config.DETECTOR_MODEL}' use different tokenizers. "
-            f"Binoculars needs a pair from the same family (gpt2 / distilgpt2 / gpt2-medium)."
-        )
+    _performer = performer
     return _performer
 
 
@@ -89,6 +100,7 @@ def binoculars_score(text: str) -> dict:
     Raw numbers. 'B' is the Binoculars ratio (lower = more likely AI).
     Also returns the pieces so you can log or plot them separately.
     """
+    _require_enabled()
     import torch
     import torch.nn.functional as F
 
@@ -97,7 +109,7 @@ def binoculars_score(text: str) -> dict:
 
     encoded = tokenizer(text, return_tensors="pt", truncation=True,
                         max_length=config.DETECTOR_MAX_TOKENS)
-    input_ids = encoded["input_ids"]
+    input_ids = encoded["input_ids"].to(observer.device)
     if input_ids.shape[1] < 3:
         raise ms.TextTooShortError("Text is too short to score — a few sentences at least.")
 
@@ -137,10 +149,9 @@ def binoculars_signal(text: str) -> float:
     The signal as a 0–1 score, **higher means more likely AI**, so it combines
     with model_signal and the style score the same way.
 
-    B is roughly 0.6–1.0 for AI text and 0.9–1.4 for human text with a GPT-2
-    pair; the exact split depends on the pair, so calibrate MIDPOINT on your
-    four Milestone 4 inputs plus a plainly-written human paragraph, and say
-    in the README where you set it.
+    B depends on the model pair and input distribution. The current midpoint
+    and steepness were fitted on the HC3 short-text calibration split; see
+    config.py and the README for the separate validation results.
     """
     b = binoculars_score(text)["B"]
     # Logistic on B, flipped: low B -> high AI score.
@@ -149,13 +160,18 @@ def binoculars_signal(text: str) -> float:
 
 
 def warm_up() -> str:
-    ms._load()
+    _require_enabled()
+    observer, _ = ms._load()
     _load_performer()
-    return f"{config.DETECTOR_MODEL} + {PERFORMER or '(single-model)'} loaded and ready."
+    return f"{config.DETECTOR_MODEL} + {PERFORMER or '(single-model)'} loaded and ready on {observer.device}."
 
 
 if __name__ == "__main__":
     import sys
+
+    if not config.BINOCULARS_ENABLED:
+        print("Binoculars is disabled (AI201_BINOCULARS=0); no models loaded.")
+        sys.exit(0)
 
     text = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else (
         "The implementation of the proposed framework requires careful "
@@ -164,6 +180,7 @@ if __name__ == "__main__":
         "different inputs. Additionally, the overall performance of the "
         "solution depends on a number of important variables."
     )
+    print(warm_up())
     r = binoculars_score(text)
     print(f"mode               {r['mode']}")
     print(f"perplexity         {r['perplexity']:.1f}")
