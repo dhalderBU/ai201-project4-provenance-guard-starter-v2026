@@ -72,6 +72,24 @@ class AuditApiTests(unittest.TestCase):
             entries[:1],
         )
 
+    def test_success_http_status_is_in_response_and_both_logs_with_or_without_creator(self):
+        for creator in ("week8_rate_limit_test_creator", None):
+            with self.subTest(creator=creator):
+                payload = {"text": FLOOD_TEXT}
+                if creator is not None:
+                    payload["creator_id"] = creator
+                response = self.client.post("/submit", json=payload)
+                self.assertEqual(response.status_code, 200)
+                body = response.get_json()
+                self.assertEqual(body["http_status"], response.status_code)
+                entry = self.entries()[-1]
+                saved = json.loads(config.SUBMISSIONS_FILE.read_text().splitlines()[-1])
+                for record in (entry, saved):
+                    self.assertEqual(record["content_id"], body["content_id"])
+                    self.assertEqual(record["creator_id"], creator or "unknown")
+                    self.assertEqual(record["http_status"], response.status_code)
+                    self.assertEqual(record["status"], "decided")
+
     def test_invalid_json_and_non_objects_are_logged_before_scoring(self):
         for raw in ("{", "", "[]", '"text"', "null", "123"):
             response = self.client.post("/submit", data=raw, content_type="application/json")
@@ -124,6 +142,7 @@ class AuditApiTests(unittest.TestCase):
         entries = self.entries()
         self.assertEqual(len(entries), 15)
         self.assertEqual([entry["status"] for entry in entries], ["decided"] * 9 + ["rejected"] * 6)
+        self.assertEqual([entry["http_status"] for entry in entries], [200] * 9 + [429] * 6)
         for entry in entries[9:]:
             self.assertEqual(entry["reason"], "rate_limited")
             self.assertEqual(entry["http_status"], 429)

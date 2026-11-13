@@ -344,6 +344,7 @@ def submit():
         label_text=label_text,
         confidence=confidence,
         status="decided",
+        http_status=200,
         perplexity_score=perplexity_score,
         binoculars_score=binoculars_score,
         binoculars_used=binoculars_used,
@@ -362,6 +363,7 @@ def submit():
 
     # Step 1 - to get the route working without any logic
     return jsonify({
+        "http_status": decision_fields["http_status"],
         "content_id": content_id,
         "guess": label,
         "label": label,
@@ -380,7 +382,7 @@ def submit():
         #"binoculars_used": binoculars_used,     # false below BINOCULARS_MIN_WORDS or if it couldn't load
         #"word_count": word_count,
         # ***deb ..end of stretch feature*** binocular***
-    }), 200
+    }), decision_fields["http_status"]
 
 
 @app.post("/appeal")

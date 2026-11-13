@@ -1,8 +1,0 @@
-{
-  "status": "unavailable",
-  "cli": "claude -p, tools disabled, strict empty MCP configuration, no session persistence; prompt read from claude_prompt.txt",
-  "cli_result": "Timed out after 180 seconds with no stdout or stderr; process terminated by subprocess.run timeout.",
-  "browser_fallback": "Browser access host unavailable; native Chrome selection failed with cgWindowNotFound.",
-  "external_review_received": false,
-  "fallback": "Explicitly labelled self-review in opposing_review.md. The saved prompt is ready for a later Claude conversation."
-}
