@@ -1577,20 +1577,116 @@ Results file: results/week8_criteria_rerun_2026-11-15/results.json
 I have previoulsy diagnosed why two of the criteria was failing and then did the changes needed and this is the after run and the criteria is passing but it may impact the attack results and we will get to know in the after results of attack
 
 <!-- Unit8 Milestone 4 end -->
+<!-- Unit8 Milestone 5 start -->
 
 
 ### Attack Run — After
 
-<!-- Same format. `run_attacks.py --label after` -->
+I ran **all 56 inputs** from the same `attack_set 3` again , after making the changes. No input was skipped.
 
+Before results file: results/week8_milestone2_before_2026-11-12_221605/reviewed_results.json
 
+After results file: results/week8_milestone5_after_2026-11-15/reviewed_results.json
+
+Before: **46 HELD, 10 BROKE**. After: **41 HELD, 15 BROKE**.
+
+When I compared the verdicts, **49 of the 56 stayed the same**. The changes are **FP02–FP07: HELD → BROKE (six new failures)** and **RQ06: BROKE → HELD (one fix)**. This means five more attacks ended as BROKE overall. 
+
+HTTP results in both runs: **21 × 200, 32 × 400, 3 × 429**.
+
+I used the same inputs and the same verdict rules as the before run. Rate limiting was on, normal requests were paced, and the 12 flood requests ran as a burst. The current thresholds were `human ≤ 0.45` and `ai ≥ 0.60`, compared with `human ≤ 0.40` and `ai ≥ 0.80` in the before attack run. 
+
+| Input | Before | After |
+|---|---|---|
+| EV01 | HTTP 200; human (0.2644); **BROKE** | HTTP 200; human (0.2644); **BROKE** |
+| EV02 | HTTP 200; unsure (0.4160); **BROKE** | HTTP 200; human (0.4160); **BROKE** |
+| EV03 | HTTP 200; unsure (0.4281); **BROKE** | HTTP 200; human (0.4281); **BROKE** |
+| EV04 | HTTP 200; unsure (0.5780); **BROKE** | HTTP 200; unsure (0.5780); **BROKE** |
+| EV05 | HTTP 200; human (0.2256); **BROKE** | HTTP 200; human (0.2256); **BROKE** |
+| EV06 | HTTP 200; unsure (0.4009); **BROKE** | HTTP 200; human (0.4009); **BROKE** |
+| EV07 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| EV08 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| EV09 | HTTP 200; unsure (0.4905); **BROKE** | HTTP 200; unsure (0.4905); **BROKE** |
+| EV10 | HTTP 200; ai (0.8864); **HELD** | HTTP 200; ai (0.8864); **HELD** |
+| FP01 | HTTP 200; unsure (0.4255); **HELD** | HTTP 200; human (0.4255); **HELD** |
+| FP02 | HTTP 200; unsure (0.6995); **HELD** | HTTP 200; ai (0.6995); **BROKE — new failure** |
+| FP03 | HTTP 200; unsure (0.6909); **HELD** | HTTP 200; ai (0.6909); **BROKE — new failure** |
+| FP04 | HTTP 200; unsure (0.6932); **HELD** | HTTP 200; ai (0.6932); **BROKE — new failure** |
+| FP05 | HTTP 200; unsure (0.7950); **HELD** | HTTP 200; ai (0.7950); **BROKE — new failure** |
+| FP06 | HTTP 200; unsure (0.7122); **HELD** | HTTP 200; ai (0.7122); **BROKE — new failure** |
+| FP07 | HTTP 200; unsure (0.7071); **HELD** | HTTP 200; ai (0.7071); **BROKE — new failure** |
+| FP08 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| PI01 | HTTP 200; human (0.3237); **BROKE** | HTTP 200; human (0.3237); **BROKE** |
+| PI02 | HTTP 200; human (0.1431); **BROKE** | HTTP 200; human (0.1431); **BROKE** |
+| PI03 | HTTP 200; unsure (0.5458); **HELD** | HTTP 200; unsure (0.5458); **HELD** |
+| PI04 | HTTP 200; unsure (0.4736); **HELD** | HTTP 200; unsure (0.4736); **HELD** |
+| PI05 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| PI06 | HTTP 200; unsure (0.4350); **HELD** | HTTP 200; human (0.4350); **HELD** |
+| MF01 | HTTP 400; missing_or_invalid_text; **HELD** | HTTP 400; missing_or_invalid_text; **HELD** |
+| MF02 | HTTP 400; insufficient_model_input; **HELD** | HTTP 400; insufficient_model_input; **HELD** |
+| MF03 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| MF04 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| MF05 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| MF06 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| MF07 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| MF08 | HTTP 200; unsure (0.6345); **HELD** | HTTP 200; ai (0.6345); **HELD** |
+| RQ01 | HTTP 400; missing_or_invalid_text; **HELD** | HTTP 400; missing_or_invalid_text; **HELD** |
+| RQ02 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| RQ03 | HTTP 400; missing_or_invalid_text; **HELD** | HTTP 400; missing_or_invalid_text; **HELD** |
+| RQ04 | HTTP 400; missing_or_invalid_text; **HELD** | HTTP 400; missing_or_invalid_text; **HELD** |
+| RQ05 | HTTP 400; missing_or_invalid_text; **HELD** | HTTP 400; missing_or_invalid_text; **HELD** |
+| RQ06 | HTTP 400; insufficient_style_input; creator_id: object; **BROKE** | HTTP 400; insufficient_style_input; creator_id: unknown; **HELD — fixed** |
+| RQ07 | HTTP 400; invalid_json_object; **HELD** | HTTP 400; invalid_json_object; **HELD** |
+| RQ08 | HTTP 400; invalid_json_object; **HELD** | HTTP 400; invalid_json_object; **HELD** |
+| RQ09 | HTTP 400; invalid_json_object; **HELD** | HTTP 400; invalid_json_object; **HELD** |
+| RQ10 | HTTP 400; invalid_json_object; **HELD** | HTTP 400; invalid_json_object; **HELD** |
+| RQ11 | HTTP 400; invalid_json_object; **HELD** | HTTP 400; invalid_json_object; **HELD** |
+| RQ12 | HTTP 400; missing_or_invalid_text; **HELD** | HTTP 400; missing_or_invalid_text; **HELD** |
+| FL01_01 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_02 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_03 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_04 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_05 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_06 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_07 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_08 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_09 | HTTP 400; insufficient_style_input; **HELD** | HTTP 400; insufficient_style_input; **HELD** |
+| FL01_10 | HTTP 429; rate_limited; **HELD** | HTTP 429; rate_limited; **HELD** |
+| FL01_11 | HTTP 429; rate_limited; **HELD** | HTTP 429; rate_limited; **HELD** |
+| FL01_12 | HTTP 429; rate_limited; **HELD** | HTTP 429; rate_limited; **HELD** |
+
+All 56 requests had matching audit entries. For the flood test, the first nine short submissions returned `400` and the last three returned `429`, same as before. FP08 was still rejected for being too short, so HELD here does not mean the application could classify that human sample. PI01 and PI02 still received the requested human label, but this alone does not prove that the application followed their instructions.
+
+**Five criteria — Before and After**
+
+Before results file: results/week8_criteria_before_2026-11-13_001807/results.json
+
+After results file: results/week8_criteria_rerun_2026-11-15/results.json
+
+I have also put my five criteria side by side. Each cell lists Run 1, Run 2, and Run 3 in that order, followed by the overall verdict.
+
+| Criterion | Target | Before (Run 1, Run 2, Run 3) | After (Run 1, Run 2, Run 3) |
+|---|---|---|---|
+| 1. False positive rate | At most 2/5 human pieces labeled AI | 0/5, 0/5, 0/5; **PASSED** | 0/5, 0/5, 0/5; **PASSED** |
+| 2. AI minus human mean score | Gap ≥ 0.30 | 0.509418, 0.509418, 0.509418; **PASSED** | 0.509418, 0.509418, 0.509418; **PASSED** |
+| 3. Label reachability | At least 4/5 correct labels under the original score bands | 3/5, 3/5, 3/5; **MISSED** | 4/5, 4/5, 4/5; **PASSED** |
+| 4. Appeal process | 5/5 appeals meet all process checks | 5/5, 5/5, 5/5; **PASSED** | 5/5, 5/5, 5/5; **PASSED** |
+| 5. Eval logging | 10/10 requests logged in the required format | 6/10, 6/10, 6/10; **MISSED** | 10/10, 10/10, 10/10; **PASSED** |
 
 **Did it help, and how do I know?**
 
-<!-- Widening the unsure band usually fixes one problem and creates another.
-     Reporting that trade honestly is worth full credit. -->
+The `creator_id` validation change helped. Earlier RQ06 was BROKE because the object supplied as creator ID was saved in the log. Now it is recorded as `unknown`, and the short text still gets rejected with `400`, so RQ06 is HELD. This also matches my criteria results, where eval logging improved from 6/10 to 10/10 in all three trials.
 
+But lowering `AI_THRESHOLD` from `0.80` to `0.60` created another problem. FP02 through FP07 are human samples which were previously labeled `unsure`, and now all six are labeled `ai`. I compared their scores with the before results and the scores have not changed; the lower threshold is what changed their labels. These include formal human writing, careful writing by a non-native English speaker, and a student essay written to a rubric.
 
+Overall, the attack results went from **46 HELD and 10 BROKE** to **41 HELD and 15 BROKE**. The same seven evasion inputs still avoided the AI label, so the lower AI threshold did not stop any additional evasion in this set. My changes helped the five criteria pass and fixed the invalid creator ID logging, but they also caused more wrong AI accusations in the attack set. This shows me that passing my criteria alone does not mean the application improved on every kind of input.
+
+**whether the resuts helped**
+
+- The criteria are passing for all (after criteria pasted earlier)
+- Attacks reponse is decraded a bit (comparison of the attack results before and after change is shown in the table above)
+
+<!-- Unit8 Milestone 5 end -->
 
 ---
 
@@ -1598,6 +1694,11 @@ I have previoulsy diagnosed why two of the criteria was failing and then did the
 
 <!-- For each attack still getting through and each criterion still missed:
      what you'd do, and why you stopped. -->
+  Perplexity score of too small pievce of writitng is not detectable
+
+  The perplexity based signal may give us inferior results if people intentionally use spelling mistakes and vary the length of sentence by joining sentences or by using unique words which are less popularly used. 
+
+  One more thing I need to understand is identification of prompt injection and returning status 400 for those kind of attack requests. 
 
 
 
@@ -1606,7 +1707,9 @@ I have previoulsy diagnosed why two of the criteria was failing and then did the
 <!-- Two sentences. Fewer wrong accusations means more AI text getting through.
      Say which way you'd go and WHO PAYS FOR IT. -->
 
+ would work on other kinds of signal which will give me better zero shot results. I will alsos like to work on trained model using weak learners or other ML models to give us beter signals .
 
+<!-- Unit8 Milestone 6 end --> 
 
 <!-- ═════════════════════════════════════════════════════════════════════
 
@@ -1626,21 +1729,17 @@ I have previoulsy diagnosed why two of the criteria was failing and then did the
 
      SUBMISSION CHECKLIST — unit 8
 
-       [ ] Rate limiting on /submit, with your numbers justified
-       [ ] The pasted run of status codes showing 429
-       [ ] Audit log with all nine fields, recording rejections too
-       [ ] The attack set run IN FULL, every input with an outcome
-       [ ] Ten audit log entries pasted as text
-       [ ] Five criteria across three trials
-       [ ] A diagnosis for every miss and every broken attack — stage AND mechanism
-       [ ] One improvement, with Attack Run — After
-       [ ] What's Still Broken, including the production trade
-       [ ] At least four new commits
-       [ ] The SAME repository URL as last unit
+       [x] Rate limiting on /submit, with your numbers justified
+       [x] The pasted run of status codes showing 429
+       [x] Audit log with all nine fields, recording rejections too
+       [x] The attack set run IN FULL, every input with an outcome
+       [x] Ten audit log entries pasted as text
+       [x] Five criteria across three trials
+       [x] A diagnosis for every miss and every broken attack — stage AND mechanism
+       [x] One improvement, with Attack Run — After
+       [x] What's Still Broken, including the production trade
+       [x] At least four new commits
+       [x ] The SAME repository URL as last unit
 
      Do not delete and recreate this repository.
      ═════════════════════════════════════════════════════════════════════ -->
-
----
-
-📖 **How to run this project: [RUNNING.md](RUNNING.md)**
