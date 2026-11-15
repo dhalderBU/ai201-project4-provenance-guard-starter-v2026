@@ -1234,10 +1234,10 @@ I limit `POST /submit` to **9 requests per minute and 400 per day** in
 large bursts. Four hundred per day allows frequent writing and revision while
 capping sustained automated attempts to map the detector's thresholds.
 
-**How I identify a caller:** I apply the limits independently to `creator_id`
+**How I identify a caller:** I have applied the limits independently to `creator_id`
 and IP address. The IP limit still applies when the creator ID is missing or
 a different creator ID is submitted from the same IP; changing IDs does not
-reset that IP's allowance. Invalid submissions count too.
+reset that IP's allowance. Invalid submissions count too. IPaddress limit overrides creator_id
 
 Exceeding either limit returns HTTP `429`, a JSON error, and `Retry-After`.
 Both `429` rate-limit rejections and `400` missing-text rejections are recorded
@@ -1245,19 +1245,74 @@ with `audit.log_rejection` before scoring. I submitted three different texts
 and verified their nine required decision fields through `GET /log`. A request
 without `text` returned `400` and appeared there with reason `missing_or_invalid_text`.
 
-**Rate-limit evidence:**
+**Rate-limit evidence: results/flood_2026-11-12_2153.md**
 
 ```bash
 python run_attacks.py --flood 15 --url http://127.0.0.1:5000 --creator test_429_creator_w8-milestone1
 ```
 
+# Rate limit check
+
+- Produced by: `run_attacks.py::run_flood`
+- 15 submissions as `test_429_creator_w8-milestone1` · 2026-11-12 21:53
+- Rate limited: **6**
+
 ```text
 200 200 200 200 200 200 200 200 200 429 429 429 429 429 429
 ```
 
-After this flood, requests with a missing creator ID or a different creator ID
-from the same IP also returned `429`.
-[Saved run](results/flood_2026-11-12_2153.md).
+After this flood, requests with a missing creator ID or a different creator ID from the same IP also returned `429`
+
+```jsonl
+{"timestamp": "2026-11-13T05:53:20+00:00", "content_id": "c_ab633c5b81dc", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:20+00:00", "content_id": "c_beda80a77f09", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:20+00:00", "content_id": "c_3c87e7d49ae9", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:20+00:00", "content_id": "c_b2bee4e865a4", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:20+00:00", "content_id": "c_ca7809b6ab53", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:20+00:00", "content_id": "c_d6d43d0edb62", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:20+00:00", "content_id": "c_93d614457317", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": "c_d765a3c810d9", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": "c_b85d8fb56340", "creator_id": "test_429_creator_w8-milestone1", "guess": "human", "model_score": 0.2559, "style_score": 0.23904835277760178, "combined_score": 0.25084450583328055, "label": "human", "status": "decided", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "confidence": 0.25084450583328055, "perplexity_score": 0.2559, "binoculars_score": 0.027, "binoculars_used": false, "word_count": 50, "http_status": 200}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "test_429_creator_w8-milestone1", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "test_429_creator_w8-milestone1", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "test_429_creator_w8-milestone1", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "test_429_creator_w8-milestone1", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "test_429_creator_w8-milestone1", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "test_429_creator_w8-milestone1", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "unknown", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T05:53:21+00:00", "content_id": null, "creator_id": "test_429_creator_w8-milestone1_different", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+```
+
+**Evidence Confirm GET /log**
+
+I submitted three different texts using `test_429_creator_w8-milestone1` and
+read each decision back through `GET /log?content_id=<id>`.
+
+```bash
+curl -sS http://127.0.0.1:5000/log
+curl -sS "http://127.0.0.1:5000/log?content_id=c_aebde581e72d"
+curl -sS "http://127.0.0.1:5000/log?content_id=c_1f2a207c0c3d"
+curl -sS "http://127.0.0.1:5000/log?content_id=c_2ee430dd4f34"
+```
+
+```text
+clearly_ai.json: HTTP 200
+clearly_human.json: HTTP 200
+borderline.json: HTTP 200
+VERIFIED clearly_ai.json: c_aebde581e72d; all nine fields present; response scores and label match GET /log.
+VERIFIED clearly_human.json: c_1f2a207c0c3d; all nine fields present; response scores and label match GET /log.
+VERIFIED borderline.json: c_2ee430dd4f34; all nine fields present; response scores and label match GET /log.
+GET /log count: 372 -> 375; all existing entries preserved and all three new submissions returned.
+```
+
+
+
+---
+
+<!-- Unit8 Milestone 1 end -->
+
+<!-- Unit8 Milestone 2 start -->
+```
 
 ---
 
@@ -1389,3 +1444,7 @@ that produced it:
 
      Do not delete and recreate this repository.
      ═════════════════════════════════════════════════════════════════════ -->
+
+---
+
+📖 **How to run this project: [RUNNING.md](RUNNING.md)**

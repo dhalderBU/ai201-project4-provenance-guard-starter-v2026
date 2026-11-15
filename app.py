@@ -240,7 +240,9 @@ def submit():
         }), 400
 
     text = payload.get("text")
-    creator_id = payload.get("creator_id", "unknown")
+    creator_id = payload.get("creator_id")
+    if not isinstance(creator_id, str) or not creator_id.strip():
+        creator_id = "unknown"
 
     # Validate the text before calling the detector.
     if not isinstance(text, str) or not text.strip():
