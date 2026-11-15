@@ -1539,6 +1539,11 @@ and captured by `run_eval.py::request_json()` in the first record of
 
 {"criterion": 5, "trial": 1, "id": "own_1", "authorship": "human", "expected_label": "human", "submission": {"method": "POST", "url": "http://127.0.0.1:5000/submit", "request": {"text": "I am enjoying what I am learning withing the course AI201. This course is exposing me to lot different type of problems and each of the exercise is well thought off. Each of the excercises given in the assignement will make one think and will force one ot do lot of research before implementing the code. I am specially liking how we need to write the criteria and my whole way of thinking AI solution is changing. Now I am thinking for any solution how I can term the criteria soas the solution that I am building gives me predictab;le results.", "creator_id": "eval_c7469475_c5_t1_own_1"}, "sent_at_utc": "2026-11-13T08:26:33.910486+00:00", "status": 200, "response": {"combined_score": 0.248051339913131, "confidence": 0.248051339913131, "content_id": "c_6fef3230f648", "guess": "human", "http_status": 200, "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.0853, "style_score": 0.6278044663771033}, "error": null, "received_at_utc": "2026-11-13T08:26:34.021969+00:00", "duration_seconds": 0.11149604200181784}, "audit_entries": [{"binoculars_score": 0.0113, "binoculars_used": true, "combined_score": 0.248051339913131, "confidence": 0.248051339913131, "content_id": "c_6fef3230f648", "creator_id": "eval_c7469475_c5_t1_own_1", "guess": "human", "http_status": 200, "label": "human", "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.", "model_score": 0.0853, "perplexity_score": 0.1592, "status": "decided", "style_score": 0.6278044663771033, "timestamp": "2026-11-13T08:26:34+00:00", "word_count": 101}], "audit_count_before": 536, "audit_count_after": 537, "checks": {"one_entry": true, "timestamp": true, "creator_id": true, "required_fields": true, "response_matches": true, "confidence_matches_combined": true, "decided": true}}
 ```
+
+<!-- Unit8 Milestone 3 end -->
+
+<!-- Unit8 Milestone 4 start -->
+
 ---
 
 ## The Improvement
@@ -1568,6 +1573,11 @@ Results file: results/week8_criteria_rerun_2026-11-15/results.json
 | 3. Label reachability | At least 4/5 correct labels under the original score bands | 4/5 | 4/5 | 4/5 | **PASSED** |
 | 4. Appeal process | 5/5 appeals meet all process checks | 5/5 | 5/5 | 5/5 | **PASSED** |
 | 5. Eval logging | 10/10 requests logged in the required format | 10/10 | 10/10 | 10/10 | **PASSED** |
+
+I have previoulsy diagnosed why two of the criteria was failing and then did the changes needed and this is the after run and the criteria is passing but it may impact the attack results and we will get to know in the after results of attack
+
+<!-- Unit8 Milestone 4 end -->
+
 
 ### Attack Run — After
 
