@@ -1102,6 +1102,29 @@ TTR: in passages of fewer than 200 words, most words appear once, so human TTR s
 Sanity check before you ship it: paste in two or three paragraphs you know are human (your own writing, a news paragraph) and two or three you generate with an LLM on a plain prompt. If the humans don’t land under ~0.40 and the AI ones over ~0.65, nudge the single anchor that’s misbehaving by ±0.05 — don’t touch the weights. That’s a five-minute calibration that needs no training set.
 - *What I changed:* I applied these rules in `stylometry.py` and `scoring.py`.
 
+### Unit8 - How I used AI: (did research n signal techniques for AI authorship signal/detection signal)
+
+**what I asked** :if I take AI generated content what is the standard deviation of text length or sentence length acrsoss teh content
+
+**What it gave**
+
+When analyzing AI-generated content compared to human writing, linguists and researchers look closely at two related metrics: sentence length variation (often referred to as burstiness) and overall text length consistency.
+
+In statistical terms, AI-generated text exhibits a significantly lower standard deviation in sentence length than human writing.
+
+1. Sentence Length Standard Deviation (Burstiness)
+AI-Generated Text (Low Standard Deviation): Large language models (LLMs) predict the next token based on statistical probabilities. Because extreme variations away from the mathematical "center" are less probable at each prediction step, AI outputs tend to cluster heavily into a narrow band of moderate-length sentences (typically averaging 15 to 25 words per sentence with a very tight spread). The standard deviation of sentence lengths is low, resulting in a smooth, predictable, and somewhat monotonous rhythm.
+
+Human-Written Text (High Standard Deviation): Human writing is naturally "bursty". A human writer might write a punchy 3-word sentence, follow it with a sprawling 45-word complex sentence, and then drop a 10-word sentence for emphasis. This variation is driven by cognitive rhythm, emotion, and meaning. Consequently, the standard deviation and range of human sentence lengths are vastly higher.
+
+Metric / Feature,Human Writing,AI-Generated Content
+Sentence Length Standard Deviation,High (Wide spread),Low (Narrowly clustered)
+Typical Sentence Range,4 to 55+ words (no rigid center),Tightly bound (mostly 15–28 words)
+Rhythm,"Irregular, reactive to pacing and emotion","Uniform, highly regular cadence"
+
+
+
+
 ## Stretch Features
 
 ### Stretch Feature 1 — Adding Binoculars as a third signal
