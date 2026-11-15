@@ -1314,6 +1314,9 @@ GET /log count: 372 -> 375; all existing entries preserved and all three new sub
 <!-- Unit8 Milestone 2 start -->
 ```
 
+
+```
+
 ---
 
 ## Attack Run — Before
@@ -1321,9 +1324,156 @@ GET /log count: 372 -> 375; all existing entries preserved and all three new sub
 <!-- Every attack with its outcome and a held-or-broke mark.
      `run_attacks.py --label before` produces the table. -->
 
+I ran **all 56 inputs** in `attack_set 3` on **November 12, 2026,22:16:05–22:21:10 Pacific**: 
+
+**46 HELD, 10 BROKE**. No input was skipped.
+
+HTTP results: **21 × 200, 32 × 400, 3 × 429**. 
+
+```bash
+.venv/bin/python run_paced_attacks.py --set 'attack_set 3' --output results/week8_milestone2_before_2026-11-12_221605 --url http://127.0.0.1:5000 --health-wait 10
+```
+
+Normal requests were paced around the IP limit; the supplied 12 flood requests
+ran as a burst. Inputs and service code were unchanged. The current label
+thresholds were `human ≤ 0.40` and `ai ≥ 0.80`; scores between them were `unsure`.
+
+**Verdicts:** An evasion is BROKE if it avoids the AI label, including `unsure`.
+A human sample is HELD if it avoids a false AI accusation. Short-input
+rejections are HELD against the documented input requirements. PI01 and PI02
+obtained the requested human label, which does not prove instruction following.
+RQ06 is BROKE because its invalid creator object was logged instead of `unknown`.
+
+| Input | HTTP | Outcome (combined score where available) | Verdict |
+|---|---|---|---|
+| EV01 | 200 | human (0.2644) | **BROKE** |
+| EV02 | 200 | unsure (0.4160) | **BROKE** |
+| EV03 | 200 | unsure (0.4281) | **BROKE** |
+| EV04 | 200 | unsure (0.5780) | **BROKE** |
+| EV05 | 200 | human (0.2256) | **BROKE** |
+| EV06 | 200 | unsure (0.4009) | **BROKE** |
+| EV07 | 400 | insufficient_style_input | **HELD** |
+| EV08 | 400 | insufficient_style_input | **HELD** |
+| EV09 | 200 | unsure (0.4905) | **BROKE** |
+| EV10 | 200 | ai (0.8864) | **HELD** |
+| FP01 | 200 | unsure (0.4255) | **HELD** |
+| FP02 | 200 | unsure (0.6995) | **HELD** |
+| FP03 | 200 | unsure (0.6909) | **HELD** |
+| FP04 | 200 | unsure (0.6932) | **HELD** |
+| FP05 | 200 | unsure (0.7950) | **HELD** |
+| FP06 | 200 | unsure (0.7122) | **HELD** |
+| FP07 | 200 | unsure (0.7071) | **HELD** |
+| FP08 | 400 | insufficient_style_input | **HELD** |
+| PI01 | 200 | human (0.3237) | **BROKE** |
+| PI02 | 200 | human (0.1431) | **BROKE** |
+| PI03 | 200 | unsure (0.5458) | **HELD** |
+| PI04 | 200 | unsure (0.4736) | **HELD** |
+| PI05 | 400 | insufficient_style_input | **HELD** |
+| PI06 | 200 | unsure (0.4350) | **HELD** |
+| MF01 | 400 | missing_or_invalid_text | **HELD** |
+| MF02 | 400 | insufficient_model_input | **HELD** |
+| MF03 | 400 | insufficient_style_input | **HELD** |
+| MF04 | 400 | insufficient_style_input | **HELD** |
+| MF05 | 400 | insufficient_style_input | **HELD** |
+| MF06 | 400 | insufficient_style_input | **HELD** |
+| MF07 | 400 | insufficient_style_input | **HELD** |
+| MF08 | 200 | unsure (0.6345) | **HELD** |
+| RQ01 | 400 | missing_or_invalid_text | **HELD** |
+| RQ02 | 400 | insufficient_style_input | **HELD** |
+| RQ03 | 400 | missing_or_invalid_text | **HELD** |
+| RQ04 | 400 | missing_or_invalid_text | **HELD** |
+| RQ05 | 400 | missing_or_invalid_text | **HELD** |
+| RQ06 | 400 | insufficient_style_input | **BROKE** |
+| RQ07 | 400 | invalid_json_object | **HELD** |
+| RQ08 | 400 | invalid_json_object | **HELD** |
+| RQ09 | 400 | invalid_json_object | **HELD** |
+| RQ10 | 400 | invalid_json_object | **HELD** |
+| RQ11 | 400 | invalid_json_object | **HELD** |
+| RQ12 | 400 | missing_or_invalid_text | **HELD** |
+| FL01_01 | 400 | insufficient_style_input | **HELD** |
+| FL01_02 | 400 | insufficient_style_input | **HELD** |
+| FL01_03 | 400 | insufficient_style_input | **HELD** |
+| FL01_04 | 400 | insufficient_style_input | **HELD** |
+| FL01_05 | 400 | insufficient_style_input | **HELD** |
+| FL01_06 | 400 | insufficient_style_input | **HELD** |
+| FL01_07 | 400 | insufficient_style_input | **HELD** |
+| FL01_08 | 400 | insufficient_style_input | **HELD** |
+| FL01_09 | 400 | insufficient_style_input | **HELD** |
+| FL01_10 | 429 | rate_limited | **HELD** |
+| FL01_11 | 429 | rate_limited | **HELD** |
+| FL01_12 | 429 | rate_limited | **HELD** |
+
+First nine short submissions returned `400`, and the last three returned `429`. FP08's short human text was rejected rather than classified; this remains a usability limitation.
 
 
-**Ten audit log entries from the run**
+- **EV01 and EV04 — signal one, combining rule, and label mapping:**
+  **Mechanism:** My first signal uses perplexity, which measures how hard text is for the model to predict. EV01 contains typos, and EV04 uses unusual words, these can make perplexity based AI score lower and make it look like human authored item.
+
+  **Before-run** configuration for these calculations: an AI score at or below `0.40` means `human`, a score at or above `0.80` means `ai`, and anything between them means `unsure`.
+
+  ```text
+  Final score = (0.70 × model score) + (0.30 × style score)
+
+  EV01: (0.70 × 0.1635) + (0.30 × 0.5) = 0.26445 → human
+  EV04: (0.70 × 0.6114) + (0.30 × 0.5) = 0.57798 → unsure
+  ```
+
+  It mapped `0.26445` to `human` and `0.57798` to `unsure`. It marked both   attacks BROKE because either label avoids the `ai` label required by the evasion test.
+
+- **EV02, EV03, EV05, EV06, and EV09 — signal two and the combining rule:**
+  **Mechanism:** The style check treats uneven sentence lengths, sparse commas and similar punctuation, and varied words as signs of human writing. EV02 adds short sentences, EV06 mixes long and short sentences, EV03 adds a quotation, EV05 rewrites the paragraph, and EV09 adds an informal opening.
+  My stylometry.py style rules gave these inputs low AI scores. The config.py gives style 30% weight(0.3)
+  of the final score, those low values pulled down the combined score.
+
+
+  ```text
+  EV02: (0.70 × 0.5943) + (0.30 × 0.0000) ≈ 0.4160 → unsure
+  EV03: (0.70 × 0.5031) + (0.30 × 0.2532) ≈ 0.4281 → unsure
+  EV05: (0.70 × 0.3212) + (0.30 × 0.0024) ≈ 0.2256 → human
+  EV06: (0.70 × 0.5727) + (0.30 × 0.0000) ≈ 0.4009 → unsure
+  EV09: (0.70 × 0.6032) + (0.30 × 0.2274) ≈ 0.4905 → unsure
+  ```
+
+  The application puts equal weitage on signal 1(model_score) and signal 3(binoculars ie if word count is more than or equal to. EV03 and EV09 met that condition, and their lower Binoculars scores
+  reduced the model score before it was added to the style score:
+
+  ```text
+  Model score = (perplexity based model score + Binoculars score) ÷ 2
+
+  EV03: (0.6662 + 0.3400) ÷ 2 = 0.5031
+  EV09: (0.7042 + 0.5022) ÷ 2 = 0.6032
+  ```
+
+  At the **label-mapping stage**, For the mentioned cases above it gave `human` or `unsure` because all
+  five final scores were below `0.80`. So I marked all five as BROKE.
+
+- **PI01 and PI02 — signals one and two, combining rule, and label mapping:**
+  **Mechanism:** Models_signal based on detector.py perplexity scored how predictable the text was. The style check treated the uneven sentence lengths, sparse punctuation, and high word variety as human-like, giving both inputs an AI-style score of `0`. Total score calculation using 70% model / 30% style rule then produced final scores below `0.40`, so it classfied as  `human`. PI02's model score was already below `0.40`; its zero style score lowered the final score further.
+
+  ```text
+  PI01: (0.70 × 0.4625) + (0.30 × 0) = 0.32375 → human
+  PI02: (0.70 × 0.2044) + (0.30 × 0) = 0.14308 → human
+  ```
+
+  I categorized both PI01 and PI02 attacks as BROKE because they received the requested `human`
+  label. The prompt inject didnt work as per the attck but the classification was humna and I feel it should ideally called as http status 400 flagging as prompt injection but it did not. 
+
+**Ten audit log entries from the run** (audit_excerpt.jsonl)
+
+```jsonl
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": 0.0287, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "insufficient_style_input", "message": "Text is too short for style analysis. Provide at least 3 sentences and 40 words.", "perplexity_score": 0.0287, "binoculars_score": 0.1738, "binoculars_used": false, "word_count": 9, "http_status": 400}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+{"timestamp": "2026-11-13T06:21:10+00:00", "content_id": null, "creator_id": "attacker_flood", "guess": null, "model_score": null, "style_score": null, "combined_score": null, "label": null, "status": "rejected", "event": "rejected", "reason": "rate_limited", "limit": "9 per 1 minute", "ip_address": "127.0.0.1", "rate_limit_key": "127.0.0.1", "rate_limit_key_type": "ip_address", "http_status": 429}
+```
 
 <!-- Choose entries that show the interesting failures, not the ten easiest. -->
 
