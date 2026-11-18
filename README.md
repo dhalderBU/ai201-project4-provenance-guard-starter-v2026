@@ -2217,3 +2217,67 @@ Sources: [original response](certification_data_requests/results/20261118T050410
 ```
 
 <!-- Unit9 Milestone 5 end -->
+
+<!-- Unit9 Milestone 6 start -->
+
+**The Improvement**
+
+**Verdict and diagnosis:** All five original criteria were **MET** in all three before runs; there were no acceptance misses to diagnose. The 100% targets were strict, but failure coverage was narrow: criterion 9 tested invalid JSON, not syntactically valid records with conflicting duplicate fields.
+
+The additional probe located a failure in `verification.py::_certificates()`: `json.loads()` discarded earlier duplicate values and kept the last. A record containing conflicting hashes, IDs or statuses could therefore pass verification. 
+
+**One change:** Added `_certificate_object()` as the JSON `object_pairs_hook`. It rejects duplicate field names at every object level before values can be overwritten. The verification endpoint returns `503`, `verified: false`, `error: "certificate_store_unavailable"`. Existing records are not rewritten.
+
+**Before — unchanged Milestone 4 targets**
+
+Saved before report- certification_data_requests/results/20261118T050410Z_acfcf2/report.md.
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 6. Correct hash storage | 5/5 certificates have correct full hashes, short IDs and audit copies | 5/5 | 5/5 | 5/5 | **MET** |
+| 7. Latest matching certification returned | 5/5 text cases return the latest matching approval twice | 5/5 | 5/5 | 5/5 | **MET** |
+| 8. Altered content fails verification | 5/5 texts reject all four alterations | 5/5 | 5/5 | 5/5 | **MET** |
+| 9. Unverifiable requests fail closed | 5/5 failure categories return all required responses | 5/5 | 5/5 | 5/5 | **MET** |
+| 10. Certification survives container replacement | 5/5 certificates retain evidence and verification after replacement | 5/5 | 5/5 | 5/5 | **MET** |
+
+**After — same criteria, fixtures and evaluator; three fresh runs**
+
+Saved after report-certification_data_requests/results/20261118T053707Z_0f8d3c/report.md.
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 6. Correct hash storage | 5/5 certificates have correct full hashes, short IDs and audit copies | 5/5 | 5/5 | 5/5 | **MET** |
+| 7. Latest matching certification returned | 5/5 text cases return the latest matching approval twice | 5/5 | 5/5 | 5/5 | **MET** |
+| 8. Altered content fails verification | 5/5 texts reject all four alterations | 5/5 | 5/5 | 5/5 | **MET** |
+| 9. Unverifiable requests fail closed | 5/5 failure categories return all required responses | 5/5 | 5/5 | 5/5 | **MET** |
+| 10. Certification survives container replacement | 5/5 certificates retain evidence and verification after replacement | 5/5 | 5/5 | 5/5 | **MET** |
+
+**Measured effect**
+
+| Measurement | Before | After |
+|---|---|---|
+| Original acceptance cases passed | 75/75 | 75/75 |
+| Ambiguous records correctly rejected | 0/9 | 9/9 |
+| Diagnostic rejections in Runs 1 / 2 / 3 | 0/3 / 0/3 / 0/3 | 3/3 / 3/3 / 3/3 |
+
+The fix improved rejection of ambiguous records; the original acceptance scores
+remained unchanged. Before - certification_data_requests/results/duplicate_fields_before_20261118T053452Z_46a7e3/results.json and after- certification_data_requests/results/duplicate_fields_after_20261118T053732Z_533cee/results.json diagnostic records retain every response.
+Both measurements used the same script and text, with immutable application image IDs recorded.
+
+Actual Run 1 responses for a duplicate `content_hash`, captured by `check_duplicate_fields.py::main()` through `run_tests.py::Sandbox.request()`: before: HTTP 200 - certification_data_requests/results/duplicate_fields_before_20261118T053452Z_46a7e3/run_1/responses/004_duplicate_content_hash.json; after: HTTP 503](certification_data_requests/results/duplicate_fields_after_20261118T053732Z_533cee/run_1/responses/004_duplicate_content_hash.json.
+The API response comes from `app.py::verify_certified_content()`.
+
+```json
+{"certificate_id":"d2e3deb3","content_id":"c_4f1c76153ba2","hash_algorithm":"sha256","latest_certification_at":"2026-11-18T05:34:55.913087+00:00","status":"verified","verified":true,"verified_dt_time":"2026-11-18 05:34:55 UTC"}
+```
+
+```json
+{"error":"certificate_store_unavailable","message":"Certificate records could not be read.","verified":false}
+```
+
+**Target I would tighten:** Keep criterion 9 at **5/5 failure categories**, but All four corruption checks must return `503` with `verified: false`. This is a proposed coverage increase; the original 13-check
+criterion was left unchanged for the before/after comparison.
+
+**Tradeoff:** One ambiguous record now makes verification unavailable until the store is repaired, including lookups for otherwise valid records. This extends the existing fail-closed behavior for malformed JSON; it does not repair records or provide cryptographic protection against someone rewriting the store.
+
+<!-- Unit9 Milestone 6 end -->
