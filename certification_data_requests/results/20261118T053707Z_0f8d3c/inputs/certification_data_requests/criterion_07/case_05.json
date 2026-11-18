@@ -1,0 +1,23 @@
+{
+  "id": "case_05",
+  "fixture_id": "long_text",
+  "name": "Beyond 400 GPT-2 tokens",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_07/requests/case_05_unchanged.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": true,
+        "status": "verified"
+      },
+      "repeat": 2
+    }
+  ],
+  "checks": [
+    "Setup: approve two separate submissions of this exact text, with distinct approval timestamps.",
+    "Both lookups must return HTTP 200, verified: true and status: verified.",
+    "Both responses must identify the latest matching approval by certificate ID, content ID and both certification timestamps."
+  ]
+}

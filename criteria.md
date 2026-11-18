@@ -165,3 +165,122 @@ what the writer actually received.
      A number you missed stays where it is, gets diagnosed, and gets a fix
      attempted. That's where the points are.
      ───────────────────────────────────────────────────────────────────────── -->
+
+## Capstone (additional 5 criteria)
+
+### Extension feature added: Certified-content integrity
+
+Use the five fixed [UTF-8 fixtures](certification_data_requests/fixtures.json):
+ordinary prose, Unicode, LF line breaks, surrounding spaces, and text exceeding
+400 GPT-2 tokens. Each contains at least 40 words and three sentences.
+
+**Counting:** 5 cases per criterion × 3 runs = **75 case executions**.
+Every criterion must score **5/5 in every run**; one failed check fails its case.
+Requests within a case and setup steps are not extra cases.
+
+**Run:** [Commands and exact requests](certification_data_requests/COMMANDS.md).
+Use fresh, isolated records for each criterion/run. Submit each fixture through
+`POST /submit`, request human review through `POST /appeal`, and approve through
+`POST /verification/review`. Verify with `POST /verification/verify`, supplying
+`certificate_id` and the exact `text`. The runner resolves generated content IDs.
+Certificate records are in `logs/verified_human_certification_log.jsonl`;
+approval audit records are in `logs/audit.jsonl`.
+
+##### 6. Correct hash storage
+
+**Target: 5/5 issued certificates contain the correct content fingerprint.**
+For each original fixture, the response, saved certificate and approval audit
+record must contain `hash_algorithm="sha256"`, the independently calculated
+64-character lowercase SHA-256 of its complete UTF-8 text, and
+`Certificate_id=content_hash[-8:]`. No trimming, normalization or truncation.
+[Cases](certification_data_requests/criterion_06/criterion.json).
+
+**Why:** Five fixtures cover distinct text representations and the model boundary.
+Hashing is deterministic; accepting one incorrect fingerprint could certify
+content different from the original. Zero mismatches is the strictest target.
+
+##### 7. Latest matching certification returned
+
+**Target: 5/5 text cases return the latest matching approval in both lookups.**
+Approve two separate submissions of each fixture, then perform its fixed
+verification request twice. All **10 responses** must return `200`,
+`verified: true`, `status: "verified"`, and the latest matching approval's
+certificate ID, content ID, `verified_dt_time` and `latest_certification_at`.
+The expected approval is the newer saved UTC timestamp for the supplied ID
+and full content hash. [Cases](certification_data_requests/criterion_07/criterion.json).
+
+**Why:** Two approvals distinguish latest from first; two lookups check repeatability.
+All ten must identify the latest approval because an older date misrepresents
+certification history. No lookup error is acceptable.
+
+##### 8. Altered content fails verification
+
+**Target: 5/5 text cases reject all four fixed alterations.**
+For each fixture, verify the supplied word, punctuation, trailing-space and
+letter-case variants against its original certificate ID. All **20 responses**
+must return `200`, `verified: false`, `status: "content_mismatch"`.
+The long fixture's word edit must begin after GPT-2 token 400 and leave the first
+400 tokens unchanged. [Exact variants](certification_data_requests/criterion_08/criterion.json).
+
+**Why:** Four edit types cover different byte changes. One accepted alteration
+would break the integrity promise, including beyond the model's scoring window;
+therefore zero altered versions may verify.
+
+##### 9. Unverifiable requests fail closed
+
+**Target: 5/5 failure categories return all specified responses, with `verified: false`.**
+Use the [fixed requests](certification_data_requests/criterion_09/criterion.json)
+and [complete legacy fixtures](certification_data_requests/criterion_09/legacy_records.json).
+Run the corrupt-storage case last, in the isolated store.
+
+| Case | Checks | Required HTTP status and field |
+|---|---|---|
+| Wrong pairing | 5 texts with certificate IDs rotated one position | `200`, `status: "content_mismatch"` |
+| Unknown ID | 2 IDs absent from the store | `404`, `error: "certificate_not_found"` |
+| Legacy record | 2 supplied approved records without hash metadata | `409`, `error: "certificate_unverifiable"` |
+| Invalid input | Missing ID, empty ID, missing text | `400`, `error: "bad_request"` |
+| Corrupt storage | 1 valid request after appending the supplied `{broken` line | `503`, `error: "certificate_store_unavailable"` |
+
+**Why:** These 13 checks cover five distinct reasons verification cannot establish
+a match. Accepting even one would claim certification without usable evidence.
+
+##### 10. Certification survives container replacement
+
+**Target: 5/5 certificate cases retain their evidence and verification behavior after container replacement.**
+Save the five certificate records and their approval audit records. Replace the
+Docker container while retaining its log volume. Exactly **5 certificate records**
+must remain; each certificate and its approval audit record must be unchanged.
+After replacement, each original text must return `200`, `verified: true`,
+`status: "verified"`; its fixed trailing-space variant must return `200`,
+`verified: false`, `status: "content_mismatch"`.
+[Cases](certification_data_requests/criterion_10/criterion.json).
+
+**Why:** All five must survive: losing one record could reject previously certified
+content, while changing its fingerprint or date would misrepresent its history.
+A routine container replacement permits no loss of certification evidence.
+
+Read-only lookups, repeated-approval safety and short-ID collisions remain covered
+by [separate regression checks](certification_data_requests/COMMANDS.md#additional-regression-checks).
+They do not add cases to the five acceptance criteria. Earlier reports retain the
+criteria and inputs used at the time; this revision requires a fresh report.
+
+### Revision record
+
+These notes retain the available earlier wording and explain scope changes.
+They are historical; the active targets above govern the current runs.
+
+- **Criterion 6 — recorded policy change:** The saved earlier revision says,
+  “Global ID uniqueness is no longer required; verification must still compare
+  the full hash when different content shares a suffix.”
+  **Current rule:** `Certificate_id=content_hash[-8:]`.
+  **Reason:** The requested content-based ID policy deliberately gives identical text the same ID.
+  The original uniqueness sentence was not retained; this note does not reconstruct it.
+- **Criterion 7 — original:** “Neither lookup may alter either submission's saved text, certificate, or approval audit record.”
+  **Revised:** “5/5 text cases return the latest matching approval in both lookups.”
+  **Reason:** The self-check identified separate outcomes; read-only behavior remains covered by linked regression tests.
+- **Criterion 10 — original:** “Repeat each approval twice, then replace the Docker container while retaining its `app-data` log volume.”
+  **Revised:** “5/5 certificate cases retain their evidence and verification behavior after container replacement.”
+  **Reason:** Approval retries and persistence can fail independently; retry safety remains a separate regression check.
+
+No pass threshold was lowered. The before/after Milestone 6 runs used the same
+active definitions; this history note does not change their targets or fixtures.

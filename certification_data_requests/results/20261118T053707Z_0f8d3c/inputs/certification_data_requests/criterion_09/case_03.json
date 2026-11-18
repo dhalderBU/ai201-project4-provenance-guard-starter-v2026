@@ -1,0 +1,30 @@
+{
+  "id": "case_03",
+  "name": "legacy_record",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/legacy_01.json",
+      "expected_status": 409,
+      "expected_fields": {
+        "verified": false,
+        "error": "certificate_unverifiable"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/legacy_02.json",
+      "expected_status": 409,
+      "expected_fields": {
+        "verified": false,
+        "error": "certificate_unverifiable"
+      }
+    }
+  ],
+  "checks": [
+    "Every request in this failure category must return the exact status/error and verified: false."
+  ],
+  "seed_records_file": "criterion_09/legacy_records.json"
+}

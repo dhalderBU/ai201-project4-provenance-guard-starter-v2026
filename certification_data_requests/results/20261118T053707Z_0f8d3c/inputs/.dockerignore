@@ -1,0 +1,27 @@
+# Include project source/docs and the small fixtures needed by the helpers.
+# Keep host logs, results, datasets, caches, credentials, and environments out.
+*
+!Dockerfile
+!compose.yaml
+!requirements.txt
+!requirements-docker.in
+!requirements-docker.lock
+!/*.py
+!/*.md
+!.github/
+!.github/*.md
+!samples/
+!samples/*.md
+!samples/clearly_human.json
+!samples/clearly_ai.json
+!samples/borderline.json
+!eval_samples/
+!eval_samples/*.md
+!eval_samples/samples.json
+!attack_set 3/
+!attack_set 3/attacks.csv
+!attack_set 3/attacks_malformed_requests.csv
+!certification_data_requests/
+!certification_data_requests/**
+certification_data_requests/results/
+certification_data_requests/**/__pycache__/

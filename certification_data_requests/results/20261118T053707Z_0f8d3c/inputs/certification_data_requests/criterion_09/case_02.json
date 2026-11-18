@@ -1,0 +1,29 @@
+{
+  "id": "case_02",
+  "name": "unknown_id",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/unknown_01.json",
+      "expected_status": 404,
+      "expected_fields": {
+        "verified": false,
+        "error": "certificate_not_found"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/unknown_02.json",
+      "expected_status": 404,
+      "expected_fields": {
+        "verified": false,
+        "error": "certificate_not_found"
+      }
+    }
+  ],
+  "checks": [
+    "Every request in this failure category must return the exact status/error and verified: false."
+  ]
+}

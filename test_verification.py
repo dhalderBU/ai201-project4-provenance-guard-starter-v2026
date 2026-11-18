@@ -110,14 +110,15 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(self.certificates()[0]["reviewer"], "unspecified")
         self.assertEqual(audit.entries_for("c_verify_test")[-1]["status"], "certified")
 
-    def test_certification_has_unique_id_utc_time_and_is_bound_to_the_reviewed_item(self):
+    def test_certification_has_hash_suffix_id_utc_time_and_is_bound_to_the_reviewed_item(self):
         self.request()
         response = self.review(reviewer="Test reviewer", review_notes="Reviewed the test drafts.")
         self.assertEqual(response.status_code, 200)
         body = response.get_json()
         self.assertEqual(body["status"], "certified")
         credential = body["credential"]
-        self.assertRegex(credential["Certificate_id"], r"^vh_[0-9a-f]{16}$")
+        self.assertRegex(credential["Certificate_id"], r"^[0-9a-f]{8}$")
+        self.assertEqual(credential["Certificate_id"], credential["content_hash"][-8:])
         datetime.strptime(credential["verified_dt_time"], "%Y-%m-%d %H:%M:%S UTC")
         self.assertEqual(credential["type"], "verified_human")
         self.assertEqual(credential["method"], "draft_review")
@@ -188,19 +189,19 @@ print(json.dumps(verification.content_status('c_verify_test')))
                                 cwd=config.ROOT, capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(result.stdout)["credential"], expected)
 
-    def test_short_uuid_collision_is_regenerated(self):
-        self.request()
-        old_id = self.review().get_json()["credential"]["Certificate_id"]
+    def test_review_request_uuid_collision_is_regenerated(self):
+        old_id = self.request().get_json()["verification_request_id"]
+        self.review()
         audit.log_decision("c_other", "another_writer")
         submissions.save_submission("c_other", "another_writer", "Another original submission.")
-        self.request(content_id="c_other")
         fresh = uuid.uuid4()
         with patch("verification.uuid.uuid4", side_effect=[
-            SimpleNamespace(hex=old_id.removeprefix("vh_") + "0" * 16), fresh,
+            SimpleNamespace(hex=old_id.removeprefix("vr_") + "0" * 16), fresh,
         ]):
-            response = self.review(content_id="c_other")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["credential"]["Certificate_id"], "vh_" + fresh.hex[:16])
+            response = self.request(content_id="c_other")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.get_json()["verification_request_id"], "vr_" + fresh.hex[:16])
+        self.assertEqual(self.review(content_id="c_other").status_code, 200)
         self.assertEqual(len(self.certificates()), 2)
 
     def test_saved_certificate_recovers_if_audit_append_fails(self):

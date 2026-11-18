@@ -1,0 +1,64 @@
+[
+  {
+    "container_id": "d9eb5f23a5198bc11c3e69e7c5bae5b3cfc6cc174c6239e6dbab3ca7a34c1307",
+    "url": "http://127.0.0.1:50223",
+    "started_at": "2026-11-18T05:05:31.407668+00:00",
+    "log_volume": "certification-test-91ae189a5e9c-logs",
+    "ready_health": {
+      "binoculars_loaded": true,
+      "binoculars_performer": "distilgpt2",
+      "binoculars_startup_error": null,
+      "circuit_breaker": {
+        "consecutive_timeouts": 0,
+        "retry_after_seconds": 0.0,
+        "state": "closed"
+      },
+      "circuit_breaker_enabled": true,
+      "detector_loaded": true,
+      "detector_model": "gpt2",
+      "inference_ready": true,
+      "inference_startup_error": null,
+      "log_entries": 0,
+      "ok": true,
+      "rate_limiting": true,
+      "request_timeout_enabled": true,
+      "request_timeout_seconds": 3.0
+    },
+    "settings": {
+      "minute_limit": 9,
+      "day_limit": 400,
+      "timeout": 3.0
+    }
+  },
+  {
+    "container_id": "b39a23d94581d761b3b66b237cc44c75db3e3f94c2d337c681efc75edb766436",
+    "url": "http://127.0.0.1:50247",
+    "started_at": "2026-11-18T05:05:35.595392+00:00",
+    "log_volume": "certification-test-91ae189a5e9c-logs",
+    "ready_health": {
+      "binoculars_loaded": true,
+      "binoculars_performer": "distilgpt2",
+      "binoculars_startup_error": null,
+      "circuit_breaker": {
+        "consecutive_timeouts": 0,
+        "retry_after_seconds": 0.0,
+        "state": "closed"
+      },
+      "circuit_breaker_enabled": true,
+      "detector_loaded": true,
+      "detector_model": "gpt2",
+      "inference_ready": true,
+      "inference_startup_error": null,
+      "log_entries": 15,
+      "ok": true,
+      "rate_limiting": true,
+      "request_timeout_enabled": true,
+      "request_timeout_seconds": 3.0
+    },
+    "settings": {
+      "minute_limit": 9,
+      "day_limit": 400,
+      "timeout": 3.0
+    }
+  }
+]

@@ -13,9 +13,13 @@ env/
 .cache/
 models/
 
+# Downloaded HC3 corpus and generated sample exports
+/Hugging_face_dataset/
+
 # OS noise
 .DS_Store
 Thumbs.db
+/logs/.verification.lock
 
 # NOTE: logs/ and results/ are deliberately NOT ignored. Your audit log and
 # your attack runs are evidence, and they're part of what gets graded.

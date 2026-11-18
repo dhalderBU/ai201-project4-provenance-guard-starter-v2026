@@ -1,0 +1,45 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.44kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 724B done
+#3 DONE 0.0s
+
+#4 [1/6] FROM docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+#4 resolve docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 209.90kB 0.5s done
+#5 DONE 0.5s
+
+#6 [2/6] WORKDIR /app
+#6 CACHED
+
+#7 [3/6] COPY requirements-docker.lock ./
+#7 CACHED
+
+#8 [4/6] RUN python -m pip install --no-cache-dir --require-hashes -r requirements-docker.lock
+#8 CACHED
+
+#9 [5/6] RUN groupadd --gid 10001 app     && useradd --uid 10001 --gid app --create-home app     && mkdir -p /app/logs /app/results /models     && chown -R app:app /app/logs /app/results /models
+#9 CACHED
+
+#10 [6/6] COPY . ./
+#10 DONE 0.0s
+
+#11 exporting to image
+#11 exporting layers 0.0s done
+#11 exporting manifest sha256:c4077c345daa8b5e339b3cd5473f8761e6f447b68d4724f343ba5f3d1b206ab1 done
+#11 exporting config sha256:ed0cf730dd978064b950773dfba9404590721557841f24fcb94db9b184a01409 done
+#11 exporting attestation manifest sha256:537f3a03ad7f171aa38078d4104579f376c45c1d1ccf8b292e88e9e326c50f7f done
+#11 exporting manifest list sha256:ff2c92e41e0de5016d9a2844ae21321a56ea4bd8c6a4101415eacaa0987b99f9 done
+#11 naming to docker.io/library/provenance-guard:certification-tests done
+#11 unpacking to docker.io/library/provenance-guard:certification-tests 0.0s done
+#11 DONE 0.1s

@@ -7,6 +7,7 @@ You'll edit the thresholds in Milestone 5 and the rate limits in unit 8.
 """
 
 import os
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -26,6 +27,28 @@ PORT = int(os.getenv("PORT", "5000"))
 # anywhere else — so it turns itself off the moment HOST isn't loopback.
 DEBUG = os.getenv("AI201_DEBUG", "1") == "1" and HOST in ("127.0.0.1", "localhost")
 
+# Server-side request budget; model work is isolated and killed on expiry.
+# Network transfer and time spent waiting outside Flask are not part of this budget.
+REQUEST_TIMEOUT_ENABLED = os.getenv("AI201_REQUEST_TIMEOUT_ENABLED", "1") == "1"
+REQUEST_TIMEOUT_SECONDS = float(os.getenv("AI201_REQUEST_TIMEOUT_SECONDS", "3"))
+# Keep isolation on in deployments, including when the deadline is disabled.
+# The inline mode is for existing in-process mock-based tests only.
+INFERENCE_PROCESS_ENABLED = os.getenv("AI201_INFERENCE_PROCESS_ENABLED", "1") == "1"
+CIRCUIT_BREAKER_ENABLED = os.getenv("AI201_CIRCUIT_BREAKER_ENABLED", "1") == "1"
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = int(os.getenv("AI201_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "3"))
+CIRCUIT_BREAKER_RECOVERY_SECONDS = float(os.getenv("AI201_CIRCUIT_BREAKER_RECOVERY_SECONDS", "30"))
+OPERATIONAL_METRICS_ENABLED = os.getenv("AI201_OPERATIONAL_METRICS_ENABLED", "1") == "1"
+OPERATIONAL_LOG_FILENAME = "operational_metrics.jsonl"
+METRICS_DEFAULT_HOURS = 24.0
+METRICS_MAX_HOURS = 720.0
+
+if not math.isfinite(REQUEST_TIMEOUT_SECONDS) or REQUEST_TIMEOUT_SECONDS <= 0:
+    raise ValueError("AI201_REQUEST_TIMEOUT_SECONDS must be a positive finite number.")
+if CIRCUIT_BREAKER_FAILURE_THRESHOLD < 1:
+    raise ValueError("AI201_CIRCUIT_BREAKER_FAILURE_THRESHOLD must be at least 1.")
+if not math.isfinite(CIRCUIT_BREAKER_RECOVERY_SECONDS) or CIRCUIT_BREAKER_RECOVERY_SECONDS <= 0:
+    raise ValueError("AI201_CIRCUIT_BREAKER_RECOVERY_SECONDS must be a positive finite number.")
+
 # ─── The local model ─────────────────────────────────────────────────────────
 # Your first signal runs a language model ON YOUR OWN MACHINE. No account, no
 # key, no card. It downloads about 550 MB the first time — do that before
@@ -34,10 +57,9 @@ DEBUG = os.getenv("AI201_DEBUG", "1") == "1" and HOST in ("127.0.0.1", "localhos
 # What it measures: how *predictable* your text is to a language model. Text a
 # model finds easy to predict tends to be text a model wrote.
 #
-# The first call is the slow one — ten to twenty seconds while the model loads,
-# longer on an older laptop. After that it stays in memory and a submission
-# takes a second or two. That cost is part of what you're learning: this is
-# what running a model inline in a request actually looks like.
+# The serving process starts a separate CPU worker to load the models. Wait
+# for /health to report inference_ready before scoring. Loading is outside the
+# request budget; subsequent inference uses the persistent worker in memory.
 
 DETECTOR_MODEL = os.getenv("AI201_DETECTOR_MODEL", "gpt2")
 

@@ -1,0 +1,50 @@
+{
+  "id": "case_02",
+  "fixture_id": "unicode",
+  "name": "Non-ASCII characters",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_02_word.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_02_punctuation.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_02_space.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_02_case.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    }
+  ],
+  "checks": [
+    "All four independently altered versions must fail verification."
+  ]
+}

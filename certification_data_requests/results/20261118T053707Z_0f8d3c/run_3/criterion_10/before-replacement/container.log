@@ -1,0 +1,55 @@
+172.17.0.1 - - [18/Nov/2026:05:41:18 +0000] "GET /health HTTP/1.1" 200 426 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:19 +0000] "GET /health HTTP/1.1" 200 426 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:19 +0000] "GET /health HTTP/1.1" 200 426 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:20 +0000] "GET /health HTTP/1.1" 200 426 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:20 +0000] "GET /health HTTP/1.1" 200 423 "-" "curl/8.7.1"
+punctuation_density = structural_marks / words = 2 / 61 = 0.032787
+punctuation_ai = clamp01((0.032787 - 0.06) / (0.14 - 0.06)) = clamp01(-0.340164) = 0.0000
+ttr = mean TTR over 50-word windows (MATTR) = 0.826667  [61 words]
+ttr_ai = clamp01((0.82 - 0.826667) / (0.82 - 0.68)) = clamp01(-0.047619) = 0.0000
+style_score = (weight_spread * spread_ai) + (weight_punctuation * punctuation_ai) + (weight_ttr * ttr_ai)
+            = (0.50 * 1.0000) + (0.20 * 0.0000) + (0.30 * 0.0000) = 0.5000
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /submit HTTP/1.1" 200 267 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /appeal HTTP/1.1" 202 202 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /verification/review HTTP/1.1" 200 345 "-" "curl/8.7.1"
+punctuation_density = structural_marks / words = 2 / 67 = 0.029851
+punctuation_ai = clamp01((0.029851 - 0.06) / (0.14 - 0.06)) = clamp01(-0.376866) = 0.0000
+ttr = mean TTR over 50-word windows (MATTR) = 0.855556  [67 words]
+ttr_ai = clamp01((0.82 - 0.855556) / (0.82 - 0.68)) = clamp01(-0.253968) = 0.0000
+style_score = (weight_spread * spread_ai) + (weight_punctuation * punctuation_ai) + (weight_ttr * ttr_ai)
+            = (0.50 * 1.0000) + (0.20 * 0.0000) + (0.30 * 0.0000) = 0.5000
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /submit HTTP/1.1" 200 312 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /appeal HTTP/1.1" 202 202 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /verification/review HTTP/1.1" 200 345 "-" "curl/8.7.1"
+punctuation_density = structural_marks / words = 1 / 65 = 0.015385
+punctuation_ai = clamp01((0.015385 - 0.06) / (0.14 - 0.06)) = clamp01(-0.557692) = 0.0000
+ttr = mean TTR over 50-word windows (MATTR) = 0.846250  [65 words]
+ttr_ai = clamp01((0.82 - 0.846250) / (0.82 - 0.68)) = clamp01(-0.187500) = 0.0000
+style_score = (weight_spread * spread_ai) + (weight_punctuation * punctuation_ai) + (weight_ttr * ttr_ai)
+            = (0.50 * 1.0000) + (0.20 * 0.0000) + (0.30 * 0.0000) = 0.5000
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /submit HTTP/1.1" 200 267 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /appeal HTTP/1.1" 202 202 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /verification/review HTTP/1.1" 200 345 "-" "curl/8.7.1"
+punctuation_density = structural_marks / words = 3 / 64 = 0.046875
+punctuation_ai = clamp01((0.046875 - 0.06) / (0.14 - 0.06)) = clamp01(-0.164062) = 0.0000
+ttr = mean TTR over 50-word windows (MATTR) = 0.849333  [64 words]
+ttr_ai = clamp01((0.82 - 0.849333) / (0.82 - 0.68)) = clamp01(-0.209524) = 0.0000
+style_score = (weight_spread * spread_ai) + (weight_punctuation * punctuation_ai) + (weight_ttr * ttr_ai)
+            = (0.50 * 0.9462) + (0.20 * 0.0000) + (0.30 * 0.0000) = 0.4731
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /submit HTTP/1.1" 200 305 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /appeal HTTP/1.1" 202 202 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /verification/review HTTP/1.1" 200 345 "-" "curl/8.7.1"
+punctuation_density = structural_marks / words = 11 / 458 = 0.024017
+punctuation_ai = clamp01((0.024017 - 0.06) / (0.14 - 0.06)) = clamp01(-0.449782) = 0.0000
+ttr = mean TTR over 50-word windows (MATTR) = 0.836039  [458 words]
+ttr_ai = clamp01((0.82 - 0.836039) / (0.82 - 0.68)) = clamp01(-0.114565) = 0.0000
+style_score = (weight_spread * spread_ai) + (weight_punctuation * punctuation_ai) + (weight_ttr * ttr_ai)
+            = (0.50 * 1.0000) + (0.20 * 0.0000) + (0.30 * 0.0000) = 0.5000
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /submit HTTP/1.1" 200 267 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /appeal HTTP/1.1" 202 202 "-" "curl/8.7.1"
+172.17.0.1 - - [18/Nov/2026:05:41:21 +0000] "POST /verification/review HTTP/1.1" 200 345 "-" "curl/8.7.1"
+[2026-11-18 05:41:18 +0000] [7] [INFO] Starting gunicorn 23.0.0
+[2026-11-18 05:41:18 +0000] [7] [INFO] Listening at: http://0.0.0.0:5000 (7)
+[2026-11-18 05:41:18 +0000] [7] [INFO] Using worker: gthread
+[2026-11-18 05:41:18 +0000] [8] [INFO] Booting worker with pid: 8
+`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.

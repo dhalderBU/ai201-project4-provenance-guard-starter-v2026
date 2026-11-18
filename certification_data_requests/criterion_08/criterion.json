@@ -1,0 +1,12 @@
+{
+  "number": 8,
+  "name": "Altered content fails verification",
+  "target": "5/5 texts reject all four alterations",
+  "cases": [
+    "criterion_08/case_01.json",
+    "criterion_08/case_02.json",
+    "criterion_08/case_03.json",
+    "criterion_08/case_04.json",
+    "criterion_08/case_05.json"
+  ]
+}

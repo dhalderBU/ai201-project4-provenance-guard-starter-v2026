@@ -1,0 +1,18 @@
+{
+  "id": "case_01",
+  "fixture_id": "ordinary",
+  "name": "Ordinary prose",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/submit",
+      "json_file": "fixtures/ordinary.submit.json",
+      "expected_status": 200
+    }
+  ],
+  "checks": [
+    "Submit and approve the original text.",
+    "Compare complete UTF-8 SHA-256, lowercase 64-character hash and final-eight-character ID.",
+    "Certificate record and approval audit record must contain the same ID and hash."
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "number": 6,
+  "name": "Correct hash storage",
+  "target": "5/5 certificates have correct full hashes, short IDs and audit copies",
+  "cases": [
+    "criterion_06/case_01.json",
+    "criterion_06/case_02.json",
+    "criterion_06/case_03.json",
+    "criterion_06/case_04.json",
+    "criterion_06/case_05.json"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "number": 9,
+  "name": "Unverifiable requests fail closed",
+  "target": "5/5 failure categories return all required responses",
+  "cases": [
+    "criterion_09/case_01.json",
+    "criterion_09/case_02.json",
+    "criterion_09/case_03.json",
+    "criterion_09/case_04.json",
+    "criterion_09/case_05.json"
+  ]
+}

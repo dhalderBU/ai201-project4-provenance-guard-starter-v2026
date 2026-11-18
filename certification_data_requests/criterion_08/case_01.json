@@ -1,0 +1,50 @@
+{
+  "id": "case_01",
+  "fixture_id": "ordinary",
+  "name": "Ordinary prose",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_01_word.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_01_punctuation.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_01_space.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_01_case.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    }
+  ],
+  "checks": [
+    "All four independently altered versions must fail verification."
+  ]
+}

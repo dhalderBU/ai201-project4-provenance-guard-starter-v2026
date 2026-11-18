@@ -298,9 +298,12 @@ def show_attacks(attacks, url):
         if "raw" in attack:
             print(f"Sent raw, claiming {attack['content_type']}:\n")
             print(attack["raw"] if attack["raw"] else "(an empty body)")
-        elif "text" in attack.get("body", {}):
+        elif isinstance(attack.get("body"), dict) and "text" in attack["body"]:
             print(attack["body"]["text"])
-            print(f"\n(submits as creator_id `{attack['body']['creator_id']}`)")
+            if "creator_id" in attack["body"]:
+                print(f"\n(submits as creator_id `{attack['body']['creator_id']}`)")
+            else:
+                print("\n(creator_id omitted)")
         else:
             print("No text field — the body itself is the attack:\n")
             print(json.dumps(attack["body"], indent=2))

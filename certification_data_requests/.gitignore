@@ -1,0 +1,8 @@
+# Keep exploratory runs local; retain the evidence referenced by the final README.
+results/*
+!results/20261118T050410Z_acfcf2/
+!results/20261118T053707Z_0f8d3c/
+!results/duplicate_fields_before_20261118T053452Z_46a7e3/
+!results/duplicate_fields_after_20261118T053732Z_533cee/
+!results/cost_20261118T054918Z_bc49b0/
+__pycache__/

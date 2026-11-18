@@ -1,433 +1,785 @@
 # Running Provenance Guard
 
-Everything about how the starter works.
+Run commands from the repository root. The shell examples use Bash or Zsh.
+This guide describes the current source code and Docker configuration; it does
+not describe the original starter stubs or a different model configuration.
 
-This is a **web service**. It runs on your machine and you talk to it with
-`curl` from another terminal. If you've not built a backend before, that's
-assumed — the starter ships one that already answers.
+Choose one service instance to use for a session:
+
+| Run path | API address from the host | Records |
+| --- | --- | --- |
+| Docker Compose | `http://127.0.0.1:5001` | Docker `app-data` volume |
+| Native Python on macOS/Linux | `http://127.0.0.1:5000` | Repository `logs/` directory |
+
+These instances have separate submission histories, certificates, model caches,
+and in-memory rate limits. A content ID issued by one is not automatically
+available in the other. For a diagram of the implemented workflows, see
+[PROGRAM_FLOW.md](PROGRAM_FLOW.md).
+
+## Prerequisites
+
+- Docker path: Docker Desktop or Docker Engine with the Compose plugin running.
+  The current built image is Linux ARM64, tested on Apple Silicon.
+- Native path: Python 3.12 is the tested version here. The project's environment
+  checker accepts Python 3.11–3.13. Use macOS, Linux, or a Linux environment such
+  as WSL; `verification.py` imports the Unix-only
+  [`fcntl` module](https://docs.python.org/3/library/fcntl.html), so native Windows
+  Python cannot import the current application.
+- Internet access for installing dependencies and downloading uncached models.
+  No hosted inference API key is required.
+- Enough disk space and memory for Python, PyTorch, both models, and inference.
+  The environment checker uses a 9 GB free-disk threshold and a 4 GB RAM
+  recommendation; these are setup checks, not measured peak usage guarantees.
+
+The Docker dependency lock pins exact package versions and download hashes.
+The native `requirements.txt` mostly specifies version ranges, so installing it
+on another date may select different versions. Neither path currently pins the
+Hugging Face model revisions in application code.
 
 ---
 
-## Before your first class
+## Run the existing application with Docker
+
+This packages the current source code without changing the detector or review
+workflow. Docker runs the application on CPU. The current `config.py` defaults
+are `gpt2` and `distilgpt2`, with a 100-word Binoculars gate and a 50/50 model
+blend in `app.py`. New human-review certificates now include a SHA-256 content
+hash, checked through `POST /verification/verify` as documented below.
+
+Start Docker Desktop. Run the following commands from the repository root.
+
+**Create the image:**
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+docker build -t provenance-guard:local .
+```
+
+The image includes Python 3.12, the application, all root-level Python and
+Markdown files, supporting documentation, small evaluation/attack fixtures,
+Gunicorn, and CPU PyTorch. Calibration and dataset-download dependencies are
+also installed, so the packaged helpers can be invoked explicitly.
+`requirements-docker.lock` pins the resolved Python dependencies and their
+download hashes. The base Python image is pinned by digest. The build uses
+your machine's architecture; the current image and dependency resolution have
+been checked on Linux ARM64 through Docker Desktop on Apple Silicon. An AMD64
+build has not been validated. An existing ARM64 image needs a compatible runtime
+or emulation when transferred to a different CPU architecture.
+
+**Start the service:**
+
+```bash
+docker compose up --build -d
+```
+
+This single command also builds the image if needed. The API is available at
+`http://127.0.0.1:5001`; the service listens on port 5000 inside the container.
+Gunicorn runs as a non-root user with one HTTP worker and four threads, debug
+mode off, and a 300-second worker watchdog. The application has its own
+**three-second request budget**, described below. One HTTP worker shares the
+in-memory rate limits and circuit breaker; restarting resets those counters.
+`gunicorn_conf.py` starts a separate persistent CPU process for scoring. This
+lets the application stop overdue computation while health and metrics requests
+continue to respond.
+
+**Download the models before your first scoring request:**
+
+```bash
+docker compose run --rm app python -c "import binoculars_signal; print(binoculars_signal.warm_up())"
+```
+
+This downloads and checks the models without scoring text or writing audit
+results. It can be run before starting the service, after building the image.
+The first download needs internet and disk space. Model files are stored in the
+persistent `model-cache` volume (`HF_HOME=/models`) and reused on subsequent
+runs. Model weights are not baked into this image. At startup, the service loads
+them into its inference process, outside the request budget. Wait for `/health`
+to report `inference_ready: true` before sending scoring requests. Models follow the revisions
+selected by the existing application's loaders; they are not revision-pinned.
+
+**Check the service:**
+
+```bash
+curl http://127.0.0.1:5001/health
+curl -X POST http://127.0.0.1:5001/ping \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"hello from Docker"}'
+docker compose ps
+docker compose logs --tail=50 app
+```
+
+`/health` checks that the service responds; container health does not prove model
+readiness. `inference_ready: false` is normal while models load. Before readiness,
+scoring returns HTTP 503 with `error: "model_not_ready"` and `Retry-After`.
+`binoculars_loaded` and `binoculars_startup_error` separately describe the optional
+performer. If that model fails to load but the detector is ready, the existing
+perplexity-only fallback remains available. Fix its cache/configuration and
+restart the service to retry the optional model's initialization.
+Use the existing `/submit`, `/appeal`, and review endpoints at this port.
+From the repository checkout on the host, score this tracked sample after model
+preparation. This command reads the host copy of the sample; the three tracked
+sample JSON files are also included under `/app/samples` in the image:
+
+```bash
+curl -X POST http://127.0.0.1:5001/submit \
+  -H 'Content-Type: application/json' \
+  --data-binary @samples/clearly_human.json
+```
+
+**Persistent records and stopping:**
+
+The `app-data` volume stores `/app/logs`, including submissions, audit entries,
+issued certificates, and operational metrics. It starts empty and does not alter or import your
+existing repository logs. The `app-results` volume stores helper outputs under
+`/app/results`; `model-cache` stores downloaded models and Hugging Face dataset
+caches under `/models`. The image excludes existing logs, generated results,
+large downloaded datasets, `.env`, and the host's virtual environment. Copying
+the image to another machine does not copy any of these volumes.
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+These commands preserve all three named volumes. `docker compose down --volumes`
+would delete their records, helper outputs, and caches; omit `--volumes` to retain them.
+While the service is running, copy its records into an unused directory when
+you need a run record for the assignment. For a consistent backup, stop incoming
+submissions and reviews while copying the files:
+
+```bash
+mkdir -p results
+mkdir results/docker-session && \
+  docker compose cp app:/app/logs/. results/docker-session/
+
+mkdir results/docker-helper-output && \
+  docker compose cp app:/app/results/. results/docker-helper-output/
+```
+
+Use a new output directory for each session and commit capstone criteria before
+collecting capstone evaluation results. These launch instructions are separate
+from the capstone's acceptance trials.
+
+If port 5001 is occupied, use `PROVENANCE_PORT=5002 docker compose up -d` and
+change the URLs accordingly. After code edits, use `docker compose up --build -d`;
+the application code is copied into the image, not mounted from your checkout.
+
+After an intentional dependency update, regenerate the lock with `uv`. Update
+the explicit version selections in `requirements-docker.in` too when they would
+otherwise conflict with the new requirements:
+
+```bash
+uv pip compile requirements-docker.in --python-version 3.12 \
+  --python-platform aarch64-unknown-linux-gnu --torch-backend cpu \
+  --index-strategy unsafe-best-match \
+  --generate-hashes --emit-index-url --output-file requirements-docker.lock
+```
+
+---
+
+## Native Python setup and startup
+
+Create a virtual environment with a supported interpreter, then install the
+application dependencies:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 python test.py
 ```
 
-**You're ready when `python test.py` passes.**
+Use `python3.11` or `python3.13` only if that is the supported interpreter you
+intend to use. The environment check imports the packages and checks `/ping`
+through Flask's test client; it is not a full test of scoring, appeals, or the
+acceptance criteria. Its model-cache check only inspects the usual home cache,
+so a custom `HF_HOME` can make its download warning inaccurate.
 
-You'll see `[WARN] Detector model — not downloaded yet`:
-
-```bash
-python detector.py
-```
-
-That downloads GPT-2 Large on first use and scores a sample. Its FP32 weights
-need roughly 3.1 GB; the Binoculars performer, GPT-2 Medium, adds roughly 1.4 GB.
-
-> **No API key for this pair.** Nothing here calls a hosted service. The model
-> that reads your text runs on your own laptop.
-
----
-
-## GPU inference
-
-The default pair is GPT-2 Large (perplexity and Binoculars observer) and GPT-2
-Medium (Binoculars performer). Both models and their input tensors use the same
-device. `AI201_DEVICE=auto`, the default, prefers CUDA, then Apple MPS, then CPU.
-
-On an Apple Silicon Mac, start the service with:
+Prepare both configured models without scoring text or writing audit records:
 
 ```bash
-AI201_DEVICE=mps .venv/bin/python app.py
+.venv/bin/python -c "import binoculars_signal; print(binoculars_signal.warm_up())"
 ```
 
-Use `AI201_DEVICE=cuda` on a machine with a CUDA-capable GPU and PyTorch build,
-or `AI201_DEVICE=cpu` to force CPU inference. An explicitly requested device
-must be available; the service reports an error instead of silently using CPU.
-Apple GPU support uses [PyTorch's MPS backend](https://docs.pytorch.org/docs/2.14/notes/mps.html).
+The native cache normally lives under `~/.cache/huggingface`. `HF_HOME` can set
+another cache location. Model downloading and cached/offline operation are
+provided by [Transformers](https://huggingface.co/docs/transformers/v4.57.1/installation).
+The Docker cache is separate from this native cache.
 
-To download both models and score a sample without writing submission logs:
+Start the service in one terminal:
 
 ```bash
-AI201_DEVICE=mps .venv/bin/python binoculars_signal.py
+AI201_DEBUG=0 .venv/bin/python app.py
 ```
 
-The command prints the loaded model pair and device before the scores. After
-the service has scored a submission, `GET /health` reports `inference_device`
-as `mps:0` on the Apple GPU (or the selected CUDA/CPU device); it is `null`
-before the detector loads.
+This runs Flask's development server on `127.0.0.1:5000`. Setting debug to zero
+avoids the development reloader during recorded sessions. If you instead run
+`.venv/bin/python app.py` without that setting, debug mode defaults to enabled
+on loopback. Stop the server with Ctrl+C. If the intended service is already
+running, use it rather than starting another process on the same port.
 
-To switch Binoculars off completely, stop the running server and restart with:
+For a native Gunicorn run instead of Flask's development server:
 
 ```bash
-AI201_BINOCULARS=0 AI201_DEVICE=mps .venv/bin/python app.py
+.venv/bin/gunicorn --config gunicorn_conf.py --bind 127.0.0.1:5000 --workers 1 --threads 4 \
+  --timeout 300 --access-logfile - --error-logfile - app:app
 ```
 
-This skips its computation and GPT-2 Medium loading. GPT-2 Large still provides
-perplexity, and the final score remains 70% perplexity plus 30% style at every
-input length. `GET /health` reports `binoculars_enabled: false`.
-`BINOCULARS_ENABLED` in `config.py` reads this switch; `AI201_BINOCULARS=1`
-enables it again. Restart after changing it so any previously loaded performer
-is released. Setting `BINOCULARS_PERFORMER = None` selects single-model
-Binoculars and does not turn the signal off.
+Gunicorn's command-line `--bind` determines its listening address. The `HOST`
+and `PORT` values in `config.py` control `python app.py`; they do not override
+Gunicorn's explicit binding. The Docker command is fixed to container port 5000.
 
-`calibrate_combined.py` also honors the switch. `calibrate.py` requires
-Binoculars enabled because it fits that signal.
+<a id="gpu-inference"></a>
 
-Optional model overrides are `AI201_DETECTOR_MODEL` and
-`AI201_BINOCULARS_PERFORMER`. Restart the service after changing these settings.
-The GPT-2 Large/Medium Binoculars curve uses midpoint `0.762`, steepness `35.5`,
-and a 250-word minimum for inclusion in the model score. Below 250 words the
-model score uses perplexity alone; at 250 words or more it blends 70%
-perplexity with 30% Binoculars. These weights are `MODEL_WEIGHT_PERPLEXITY`
-and `MODEL_WEIGHT_BINOCULARS` in `config.py`. The outer model/style weights
-remain 70/30. The
-[short-text calibration report](results/calibration_2026-11-11_large_medium/hc3_50_100/report.md)
-records the earlier 50-word gate and 50/50 blend.
-Restart after changing scoring settings too. GPU support retains the existing precision.
+## Current model, device, and scoring settings
 
-The active style signal uses a 50-word MATTR window with anchors `0.68` (AI)
-and `0.82` (human). See the
-[stylometry review](results/stylometry_review_2026-11-11/report.md) for the measured tradeoffs.
-Rate limits stay enabled for Unit 8 measurements through
-`RATE_LIMITING_ENABLED = True` in `config.py`. The calibration scripts that
-call scoring functions directly are not subject to API rate limits.
+| Setting | Current value or behavior |
+| --- | --- |
+| Detector and Binoculars observer | `gpt2` by default |
+| Binoculars performer | `distilgpt2` |
+| Device | CPU: the current loaders do not move models or tensors to CUDA/MPS |
+| Model text limit | First 400 tokens |
+| Binoculars inclusion threshold | At least 100 whitespace-separated words |
+| Model blend at/above threshold | 50% perplexity and 50% Binoculars, rounded to four decimals |
+| Below threshold or unavailable Binoculars | Perplexity supplies the model score |
+| Final submission blend | 70% model and 30% style |
+| Final labels | `human` at/below 0.45; `unsure` between 0.45 and 0.60; `ai` at/above 0.60 |
+| Style minimum | Three sentences and 40 word tokens |
+| MATTR | 50-word window; AI anchor 0.68, human anchor 0.82 |
+| Automatic appeal blend | 60% perplexity and 40% style for each text variant |
 
-## Your first five minutes
+Binoculars is computed even below its inclusion threshold. Setting
+`BINOCULARS_PERFORMER = None` in `config.py` selects single-model Binoculars;
+it does not disable the calculation. The current Binoculars curve uses midpoint
+`0.85` and steepness `20.0`.
 
-Two terminals. In the first:
+`AI201_DEVICE`, `AI201_BINOCULARS`, and `AI201_BINOCULARS_PERFORMER` are not read
+by the current code. Setting them will not enable GPU inference, disable
+Binoculars, or change the performer. `/health` does not return
+`inference_device` or `binoculars_enabled`.
+
+These application environment variables are implemented:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | Binding for `python app.py`; debug is disabled when this is not loopback. |
+| `PORT` | `5000` | Port for `python app.py`. |
+| `AI201_DEBUG` | `1` | Enables debug only on loopback; use `0` for recorded runs. |
+| `AI201_DETECTOR_MODEL` | `gpt2` | Selects the detector/observer model. Changing it can require recalibration and a compatible performer. |
+| `AI201_REQUEST_TIMEOUT_ENABLED` | `1` | Enforce the shared request processing budget; `0` disables it. |
+| `AI201_REQUEST_TIMEOUT_SECONDS` | `3` | Positive finite processing-time limit in seconds. |
+| `AI201_CIRCUIT_BREAKER_ENABLED` | `1` | Pause scoring after repeated timeouts; `0` disables the breaker. |
+| `AI201_CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | Number of consecutive scoring timeouts that opens the circuit. |
+| `AI201_CIRCUIT_BREAKER_RECOVERY_SECONDS` | `30` | Positive cooldown before allowing one recovery probe. |
+| `AI201_OPERATIONAL_METRICS_ENABLED` | `1` | Write request receipts and completions to the operational JSONL file. |
+| `AI201_INFERENCE_PROCESS_ENABLED` | `1` | Keep enabled for deployment. `0` is only for in-process mock-based tests, with timeouts disabled. |
+
+`HF_HOME` is a Hugging Face library setting. `PROVENANCE_PORT` is a Compose
+setting for the host-side published port. Neither changes the scoring rule.
+Compose forwards the timeout, circuit-breaker, and operational-logging variables
+listed above. It does not forward arbitrary host variables; add explicit service
+environment entries if needed.
+Restart native Python after a source/configuration change, or rebuild and
+recreate Docker with `docker compose up --build -d`.
+
+**Measured model files in the current Docker cache:**
+
+| Model | `model.safetensors` size |
+| --- | ---: |
+| `gpt2` | 548,105,171 bytes (about 548 MB) |
+| `distilgpt2` | 352,824,413 bytes (about 353 MB) |
+
+These are measured weight-file sizes, not peak RAM or total installation size.
+Tokenizers, dependencies, cache metadata, and inference tensors add overhead.
+The application runs models locally; the course's local-with-logs Path B is
+appropriate. A hosted deployment would need its own resource and persistence
+assessment. No particular free-host plan is assumed here.
+
+## Check the API and submit text
+
+In a second terminal, select the instance you started:
 
 ```bash
-python app.py
+# Docker instance
+PROVENANCE_URL=http://127.0.0.1:5001
+
+# For native Python, use this instead:
+# PROVENANCE_URL=http://127.0.0.1:5000
+
+curl -sS "$PROVENANCE_URL/health"
+curl -sS -X POST "$PROVENANCE_URL/ping" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"hello"}'
 ```
 
-In the second:
+`/health` returns `ok`, `detector_model`, `detector_loaded`,
+`binoculars_performer`, `binoculars_loaded`, `rate_limiting`, and `log_entries`.
+The loading flags describe the serving process. Running the preparation command
+in another process fills the disk cache but does not set these flags to true.
+
+From the host repository, submit the tracked example file:
 
 ```bash
-curl -X POST http://127.0.0.1:5000/ping \
-  -H "Content-Type: application/json" \
-  -d '{"message": "hello"}'
+curl -sS -X POST "$PROVENANCE_URL/submit" \
+  -H 'Content-Type: application/json' \
+  --data-binary @samples/clearly_human.json
 ```
 
-You should get JSON back. That's the whole idea of a web service — something
-sent it data, it sent something back.
+A valid, scorable request returns HTTP 200 with a real `content_id`, label,
+reader-facing message, and scores. The sample filename is not a guarantee of
+the returned classification. Empty or insufficient text returns HTTP 400;
+`/submit` is implemented and does not return the old starter's HTTP 501.
+Save the returned `content_id` for subsequent requests to the same instance.
 
-> **On Windows, use `curl.exe` and keep it on one line.**
->
-> In PowerShell, `curl` is an alias for a different tool and the command above
-> fails with `Cannot bind parameter 'Headers'` before it ever reaches your
-> service. The `\` line breaks don't work there either. This does:
->
-> ```powershell
-> curl.exe -X POST http://127.0.0.1:5000/ping -H "Content-Type: application/json" -d '{\"message\": \"hello\"}'
-> ```
->
-> Every `curl` command in this file and in the brief works the same way: swap
-> `curl` for `curl.exe` and put it on one line. Git Bash needs no change.
+| Route | Required input or purpose |
+| --- | --- |
+| `POST /ping` | Optional JSON message; echoes it and identifies the service. |
+| `GET /health` | Service and model-loading status. |
+| `POST /submit` | JSON `text`; optional `creator_id`. |
+| `POST /appeal` | Existing `content_id` and non-empty `reasoning`; defaults to automatic reassessment. |
+| `POST /appeal` with `review_type="human_verification"` | Also requires non-empty `additional_text`; returns HTTP 202 and a review request ID. |
+| `GET /verification/review/<content_id>` | Retrieve original text, review evidence, and saved outcome. |
+| `POST /verification/review` | `content_id` and `status` (`certified` or `not_certified`); optional `reviewer` and `review_notes`. |
+| `POST /verification/verify` | `certificate_id` and the exact `text` to compare with that certificate's saved hash. |
+| `GET /content/<content_id>` | Retrieve current content/review status and any issued certificate. |
+| `GET /log` | Audit entries; optional `limit` and `content_id` query parameters. |
 
-**Leave `/ping` alone.** It's your control. When something breaks later, check
-`/ping` still answers: if it does, the problem is in your handler; if it
-doesn't, it's the service itself, and that's a help-channel question.
-
-Then try the route you're going to build:
+For example, replace `c_REPLACE_WITH_RETURNED_ID` with the ID returned above:
 
 ```bash
-curl -X POST http://127.0.0.1:5000/submit \
-  -H "Content-Type: application/json" \
-  -d '{"text": "some writing", "creator_id": "me"}'
+curl -sS -X POST "$PROVENANCE_URL/appeal" \
+  -H 'Content-Type: application/json' \
+  -d '{"content_id":"c_REPLACE_WITH_RETURNED_ID","reasoning":"Please recheck this assessment."}'
 ```
 
-It returns a `501` saying it isn't built yet. **That's the correct starting
-position.**
+Automatic reassessment returns HTTP 200 and keeps the appeal `under_review`.
+It uses three text variants and a majority vote; it does not issue a certificate.
+The human-review path is implemented in `verification.py`. The current reviewer
+endpoint is unauthenticated. See [PROGRAM_FLOW.md](PROGRAM_FLOW.md) for the full
+sequence and the limits of a certificate backed by this application's records.
 
----
+**Check text against a certificate:**
 
-## The routes
-
-| Route | State | What it does |
-|---|---|---|
-| `POST /ping` | **works** | The example. Don't edit it |
-| `GET /health` | **works** | Is the service up, is the model loaded |
-| `GET /log` | **works** | The audit log, as JSON |
-| `POST /submit` | **you build it** | Milestones 3, 4, 5 |
-| `POST /appeal` | **you build it** | Milestone 5 |
-
----
-
-## Every command
-
-| Command | What it does |
-|---|---|
-| `python test.py` | Checks your environment |
-| `python app.py` | Runs the service |
-| `python detector.py` | Downloads the model and scores a sample — **run before class** |
-| `python detector.py "some text"` | Score one piece of text from the terminal |
-| `python stylometry.py "some text"` | Your style measures, on one piece of text |
-| `python run_attacks.py --set <folder>` | The attack set — **unit 8** |
-| `python run_attacks.py --flood 15` | Push past your rate limit and print the status codes — **unit 8** |
-| `python run_eval.py --label before` | Your five criteria, three trials — **unit 8** |
-
----
-
-## Which piece goes with which milestone
-
-### Unit 7 — the build
-
-| Milestone | What you're doing | Where |
-|---|---|---|
-| 1 | Trace a submission on paper | Nothing to run |
-| 2 | Write your criteria | `criteria.md` — all five are yours |
-| 3 | The route, one signal, the log | `app.py::submit`, `detector.py`, `audit.py` |
-| 4 | Second signal, combine, score | `stylometry.py`, `scoring.py::combine_signals` |
-| 5 | Labels and the appeal path | `scoring.py::score_to_label`, `app.py::appeal` |
-| 6 | Write it up | `README.md` |
-
-### Unit 8 — the test
-
-| Milestone | What you're doing | Where |
-|---|---|---|
-| 1 | Rate limiting and the full log | `config.py`, the decorator in `app.py` |
-| 2 | Run the attack set | `run_attacks.py` |
-| 3 | Run your own criteria | `scenarios.py`, `run_eval.py` |
-| 4 | Verdicts and diagnoses | `README.md` |
-| 5 | Fix one thing, re-run | `run_attacks.py --label after` |
-| 6 | What's still broken | `README.md` |
-
----
-
-## Building `/submit` in three passes
-
-The ordering is deliberate. It's how you tell a broken route from a broken
-signal.
-
-**Milestone 3.** Return a hardcoded response. Confirm `curl` gets it back
-**before** you add any logic. Then pull `text` and `creator_id` out. Then call
-one signal. Then log it.
-
-**Milestone 4.** Add the second signal. Combine them. Log both scores.
-
-**Milestone 5.** Turn the score into a label.
-
-> Test each signal from a terminal on its own before wiring it in. If you skip
-> that you'll spend an hour not knowing whether the route or the signal is
-> lying to you.
-
----
-
-## Rate limiting (unit 8)
-
-Rate limiting is enabled by default. `POST /submit` allows 9 requests per
-minute and 400 per day independently for each IP address and each valid
-creator ID, using the same constants in `config.py`. Both route decorators
-are active. Every request counts against its IP, and a valid creator ID also
-has its own allowance across IPs. Exceeding either allowance returns `429`.
-
-Keep `RATE_LIMITING_ENABLED = True` in `config.py` for the Unit 8 runs.
-The old `AI201_RATE_LIMITS` environment override no longer changes this setting.
-Restart after editing configuration; `GET /health` reports `rate_limiting`.
-Use the Flask service on its default port, 5000. If it is already running,
-do not start another copy. Otherwise, start it with `.venv/bin/python app.py`.
-`curl -sS http://127.0.0.1:5000/health` should return the service's JSON with
-`"ok": true` and `"rate_limiting": true`.
-
-Then push past your limit and watch for `429`:
+After a reviewer certifies a submission, copy `credential.Certificate_id` from
+the review response or `GET /content/<content_id>`. The verification request
+uses the lowercase field `certificate_id`. Replace both example values below
+with that ID and the exact certified text:
 
 ```bash
-curl -sS http://127.0.0.1:5000/health
-sleep 10
-.venv/bin/python run_attacks.py --flood 15 --url http://127.0.0.1:5000
-curl -sS http://127.0.0.1:5000/health
+curl -sS -X POST "$PROVENANCE_URL/verification/verify" \
+  -H 'Content-Type: application/json' \
+  -d '{"certificate_id":"REPLACE_WITH_ISSUED_ID","text":"The exact previously certified text."}'
 ```
 
-That sends 15 submissions from one `creator_id` and prints the run of status
-codes — `200 200 200 ... 429 429` — which is exactly what your README's **Rate
-Limiting** section asks you to paste. It also writes `results/flood_<date>.md`.
+For text containing line breaks or quotes, put the correctly JSON-escaped
+payload in a file and pass `--data-binary @verify-request.json` instead.
 
-Every attack row submits under its own `creator_id`, but requests from one
-machine still share the IP allowance. A rapid full-set run can therefore hit
-the IP limit. Changing creator IDs does not reset it, and writers sharing an
-IP share its cap. Record `429` outcomes as rate-limit results rather than
-classification results. Audit entries identify the breached allowance through
-`rate_limit_key_type` and `rate_limit_key`.
+| HTTP status | Response | Meaning |
+| --- | --- | --- |
+| 200 | `verified: true`, `status: "verified"` | The full hash matches; returns the latest matching certification's content ID and timestamps. |
+| 200 | `verified: false`, `status: "content_mismatch"` | The check completed, but this text does not match this certificate. |
+| 400 | `verified: false`, `error: "bad_request"` | Invalid JSON, missing/invalid fields, empty text, or invalid UTF-8 text. |
+| 404 | `verified: false`, `error: "certificate_not_found"` | This deployment has no record of that certificate ID. |
+| 409 | `verified: false`, `error: "certificate_unverifiable"` | Missing/unusable hash or timestamp metadata, an inconsistent short ID, or conflicting copies of one approval activity. |
+| 503 | `verified: false`, `error: "certificate_store_unavailable"` | The certificate file is unreadable, malformed, or contains duplicate JSON field names. |
 
-For the complete supplied attack set, keep both limits enabled and pace the
-normal inputs so they reach scoring or validation. This wrapper uses the
-starter's loader and sender, preserves the input bodies, waits ten seconds
-after its initial health check, and runs the flood family as a burst in a fresh
-minute window:
+Duplicate field names are rejected at every object level, including inside a
+credential. The parser does not choose between conflicting values or rewrite the
+file. Any such record makes certificate verification unavailable until the store
+is repaired. Separate approval records may still share the same certificate ID.
+
+Always inspect `verified`, not just HTTP 200. New approvals store
+`credential.hash_algorithm="sha256"` and `credential.content_hash` in both the
+certificate file and the review audit event. The hash covers the full UTF-8
+text, including whitespace, punctuation, and text beyond the model's 400-token
+limit. No trimming or Unicode normalization is applied. The lookup does not
+run models, change content status, or rewrite old certificates. Existing
+certificates without a hash remain readable but cannot pass this content check.
+
+For new approvals, **`Certificate_id = content_hash[-8:]`**: exactly eight lowercase
+hexadecimal characters, with no `vh_` prefix. For example, SHA-256 of the text
+`abc` ends in `f20015ad`. Identical text approved under separate submissions gets
+the same certificate ID, with a separate certification-history record for each
+approval. Submission and verification-request IDs remain separate identities.
+
+The eight-character suffix is a lookup key; it is not globally unique. Verification
+compares the complete 64-character SHA-256 hash. If different full hashes share
+the short ID, only records matching the presented full hash can verify. Among
+those records, the latest approval is selected by its timezone-aware `timestamp`,
+with file order breaking exact timestamp ties. New approval timestamps preserve
+microseconds, so separate approvals within the same second can be ordered.
+
+Successful verification now returns:
+
+| Field | Meaning |
+| --- | --- |
+| `certificate_id` | The supplied certificate ID. |
+| `content_id` | Submission associated with the latest matching approval. |
+| `verified_dt_time` | That approval's original human-readable date/time, in UTC. |
+| `latest_certification_at` | The same approval's precise timestamp in ISO 8601 UTC, including stored fractional seconds. |
+
+“Latest activity” means **latest successful certification**, not the current
+lookup time. Repeating approval of the same already-reviewed submission returns
+its original record and does not refresh its date. A newly submitted copy must
+go through human review to add a later certification activity. `GET /content/<id>`
+continues to show that particular submission's own approval, rather than another
+submission's more recent certification.
+
+For `content_mismatch`, both timestamp fields are `null`; if the short ID spans
+multiple full hashes and none matches, `content_id` is also `null`. Older
+UUID-based IDs remain usable by their stored ID when their full hashes and dates
+are valid. Existing certificate and audit records are not renamed or backfilled.
+
+A match establishes equality with the stored certified version. It does not
+independently prove authorship or provide public-key issuer authentication.
+Verification requests appear in Gunicorn access logs and in the operational
+JSONL file, including their HTTP status, duration, `result_status`, and `verified`
+result. They do not add business audit events or model-token usage.
+
+## Request timeouts, circuit breaker, and operational metrics
+
+The flags and defaults live near the top of [config.py](config.py). The default
+deadline is **3 seconds for the whole Flask request**, shared across perplexity,
+Binoculars, and style analysis; an automatic appeal's three variants share the
+same budget. Model loading happens before readiness. The isolated process owns
+only computation. The HTTP process writes decisions and certificates after a
+deadline check, so abandoned scoring cannot later save a decision.
+
+| Situation | HTTP response | Behavior |
+| --- | --- | --- |
+| Processing deadline expires | 504, `request_timeout` | Stop the computation process, record the configured timeout, and reload models for a later request. |
+| Circuit is open | 503, `circuit_open` | Reject scoring immediately with `Retry-After`; other routes remain available. |
+| Another request owns the computation process | 503, `inference_busy` | Return immediately with `Retry-After` rather than queue scoring work. |
+| Models are loading or primary initialization failed | 503, `model_not_ready` | Inspect `/health` and console logs before retrying. |
+
+Three consecutive scoring timeouts open the circuit for 30 seconds by default.
+After the cooldown, one scoring request probes recovery. Success closes the
+circuit and clears the timeout counter; an unsuccessful probe opens it again.
+Successful scoring resets the closed circuit's counter. Rate-limit and validation
+failures are counted in metrics but do not trip the circuit. Circuit state and
+rate limits are in memory; their operational records survive restarts.
+
+For example, change the deadline and recreate the Docker service:
 
 ```bash
-.venv/bin/python run_paced_attacks.py --set "/Users/debasishhalder/Downloads/attack_set 3" --output results/attack_set3_next_run --url http://127.0.0.1:5000 --health-wait 10
+AI201_REQUEST_TIMEOUT_SECONDS=5 docker compose up -d
 ```
 
-Use a new output directory for each run. It captures every response as it
-arrives, copies the exact input CSVs, checks health immediately after the last
-attack, and saves the audit excerpt. `responses.jsonl` contains raw outcomes;
-verdicts require reviewing them against each attack's target. The completed
-Milestone 2 run and reviewed report are linked from the README.
+Supply the setting again on later Compose invocations, or put it in the local
+`.env` file. Set `AI201_REQUEST_TIMEOUT_ENABLED=0` to disable the deadline, or
+`AI201_CIRCUIT_BREAKER_ENABLED=0` to disable only the circuit breaker. Keep process
+isolation enabled. If changing Python source defaults, rebuild the image too.
 
-No `429` at all? Either your limit is above 15 a minute, or rate limiting is
-still off. `GET /health` reports which.
+The budget starts in Flask's first request hook. It does not include network
+transfer or waiting in the web server before Flask begins. Scoring is forcibly
+stopped at expiry; other handlers check the deadline cooperatively, including
+before successful persistence. OS scheduling, process shutdown, and file I/O can
+add response overhead. A write that has already committed keeps its actual
+success response and records `deadline_exceeded` if late. This is a server
+processing budget, not a guarantee that every client receives bytes within
+exactly three seconds. A timed-out automatic appeal may retain its initial
+acceptance event, but cannot append a later reassessment from abandoned work.
 
-Rejections are logged for you. **An attack that shows up only as an absence is
-one you'll never find** — a thousand requests that got a `429` and left no
-trace look exactly like a quiet afternoon.
-
----
-
-## Five criteria, three trials (unit 8)
-
-With the same service running on port 5000:
+**Query the last N hours as JSON:**
 
 ```bash
-.venv/bin/python run_eval.py --label before
+curl -sS 'http://127.0.0.1:5001/metrics?hours=24'
+curl -sS 'http://127.0.0.1:5001/metrics?hours=6&download=1' \
+  -o operational-metrics.json
 ```
 
-`scenarios.py` defines all five criteria using fixed inputs in
-`eval_samples/samples.json`. The runner makes three actual trials per criterion,
-including new submissions and appeals. It captures health, waits ten seconds,
-then paces 105 submissions at nine per 61-second window. Allow about twelve
-minutes. Other requests from your IP share the limit, so keep the service idle
-before and during the run. A 429 is recorded as a failed request; it is not
-silently retried. Leave the service and its settings unchanged between trials.
+`hours` defaults to 24 and accepts positive fractional values through 720 hours.
+Invalid values return 400. `download=1` adds an attachment filename; the response
+is `application/json` in both cases. The report includes:
 
-Each run creates a new `results/run_<timestamp>_before/` directory containing
-`report.md`, `results.json`, streamed `responses.jsonl`, the audit excerpt,
-health checks, and snapshots of the source and inputs. The final health check
-follows the last trial immediately. Files are hashed before and after the run.
-Use `--output results/a_new_directory` to choose an unused output directory.
-After the separately documented improvement, use `--label after` with the
-same fixtures and targets.
+- Requests received, completed, and lacking a completion record; counts by route.
+- Average, minimum, maximum, median, and p95 processing duration in seconds.
+- `classification_counts` for successful `POST /submit`: `human`, `ai`, `unsure`.
+  Automatic-appeal labels have a separate count to avoid counting them as new submissions.
+- HTTP status counts, including 200, 400, 429, 503, and 504; timeouts and circuit rejections.
+- Historical timeout settings with the number of requests and timeouts under each
+  setting, plus the current timeout and circuit state.
+- Per-model token/forward-pass totals and measured CPU seconds.
 
-The source of each human and AI fixture is recorded in `eval_samples/README.md`.
-Only two human texts are personal writing; the other three carry HC3's human
-label. Verdicts retain the original targets in `criteria.md`, including its
-0.45 human cutoff, even though the current service uses 0.40.
+The window uses each request's UTC arrival time. All routes count, including
+health checks and metrics queries. The current metrics query contributes its
+receipt, but its completion has not happened yet. Averages and status counts use
+completed requests only. Receipts without completions can indicate in-flight work
+or an interrupted process. Receipt/completion pairs are deduplicated by request
+ID; malformed records are skipped and counted. Historical records are available
+only while logging is enabled and the log file is retained.
 
----
+**What the performance log measures:**
 
-## Running it somewhere else (unit 9)
+`logs/operational_metrics.jsonl` is the separate performance/operations log.
+Each request has `request_received` and `request_completed` events sharing a
+`request_id`, also returned in `X-Request-ID`. Completion records contain HTTP
+status, processing duration, label/result, timeout value and flag, breaker state,
+CPU measurements, and per-forward-pass model measurements. The log omits full
+request text; original submissions remain in the existing submission store.
 
-Unit 9 asks you to deploy one of your systems. **Read this before you pick
-which one** — for this project the answer is already decided, and it isn't the
-hosted one.
+`duration_seconds` measures elapsed wall time through response construction,
+before writing the completion record and sending the response. `cpu_time_seconds`
+adds the HTTP handler thread's CPU time to CPU time measured inside the isolated
+scoring process. It excludes model startup, idle time, and network transfer. CPU
+seconds can exceed wall seconds because PyTorch uses multiple CPU threads. If a
+process is killed before reporting its CPU total, the request total is `null`
+and `cpu_measurement_complete` is false; completed forward-pass measurements are
+still retained. The report's measured CPU total excludes unknown request totals.
 
-Flask's built-in server says "development server" on startup because that's
-what it is. A real one comes from `gunicorn`, which is in
-`requirements.txt` and unused until now:
+`models` is keyed by the configured model name. For a normal submission, GPT-2
+runs twice (perplexity and Binoculars observer), while DistilGPT-2 runs once.
+`input_tokens` counts the actual tokens passed to each started forward pass after
+the 400-token limit, including repeated use of the same text. Interrupted calls
+are included there; `completed_input_tokens` counts only completed calls.
+`scored_tokens` counts prediction positions used by completed scoring passes.
+**`output_tokens` is zero for both models:** these calls score text and do not
+generate a response. Automatic appeals run GPT-2 on each scorable variant and do
+not use DistilGPT-2. These are local compute measurements, not hosted API billing.
+
+The operational file and its parent folder are created on the first request.
+If the initial receipt cannot be written, the API returns 503 before doing
+business work. A completion-write failure is reported to the console and adds
+`X-Operational-Metrics: unavailable`; it does not undo an already committed result.
+The current implementation scans the JSONL file for each report and does not
+rotate it automatically. Keep the named volume and export/retain records as
+needed; a sufficiently large log can exhaust the metrics request's time budget.
+
+## Logs, helper scripts, and documentation
+
+| Location | Contents |
+| --- | --- |
+| `logs/submissions.jsonl` | Complete submitted text and initial decisions. |
+| `logs/audit.jsonl` | Decisions, submission rejections, appeals, and review events. |
+| `logs/verified_human_certification_log.jsonl` | Approved human-review certificates. |
+| `logs/operational_metrics.jsonl` | Request receipts/completions, latency, HTTP statuses, timeouts, classifications, and per-model token/CPU measurements. |
+| `results/` | Reports and captured responses created by evaluation scripts. |
+
+Native Python writes beneath the repository. Docker writes these log files
+under `/app/logs` in its `app-data` volume. Those files appear when their first
+record is written. Console logs and JSONL records are separate.
+
+| Container path | Persistent storage | Purpose |
+| --- | --- | --- |
+| `/app/logs` | `app-data` volume | Audit, submission, certificate, and operational JSONL files, plus the review lock. |
+| `/app/results` | `app-results` volume | Evaluation reports and other helper outputs. |
+| `/models` | `model-cache` volume | Hugging Face models and dataset caches. |
+| Standard output/error | Docker logging | Gunicorn access/error logs, viewed with `docker compose logs app`. |
+
+These are Docker-managed volumes, not bind mounts of the host repository's
+`logs/` or `results/` folders. Use the copy commands above to export their files.
+The image creates all three directories writable by its non-root application
+user. `config.py` resolves its log/result paths beneath `/app`, independently
+of the working directory used to invoke a helper.
+
+The image includes every root-level `*.py` and `*.md`, including `criteria.md`,
+the test modules, runners, and calibration/download tools. It also includes
+Markdown documentation under `.github/`, `samples/`, and `eval_samples/`, the
+three tracked sample JSON files, `eval_samples/samples.json`, and the two attack
+CSVs under `attack_set 3/`. Other local datasets and generated reports are not
+embedded; supply their paths explicitly or mount an input folder when needed.
+
+With the service running, inspect the packaged tools without sending scoring
+requests:
 
 ```bash
-gunicorn app:app --bind 0.0.0.0:$PORT
+docker compose exec app python run_eval.py --help
+docker compose exec app python run_attacks.py --set 'attack_set 3' --show
+docker compose exec app python calibrate.py --help
+docker compose exec app sh
 ```
 
-Two settings do the work, and both read the environment:
+An actual evaluation can use the service's internal port. This command creates
+submissions and audit entries and writes its reports to the `app-results` volume:
 
-| Variable | Default | What it does |
-|---|---|---|
-| `HOST` | `127.0.0.1` | Loopback — your machine only. A host needs `0.0.0.0`, or nothing outside the box can reach the service and it looks like the app is down |
-| `PORT` | `5000` | Most hosts hand you a port in `PORT` and expect you to bind exactly that one |
-| `AI201_DEBUG` | `1` | Debug mode. Off automatically whenever `HOST` isn't loopback — an interactive debugger on a public address is a stranger's Python prompt inside your process |
+```bash
+docker compose exec app python run_eval.py \
+  --url http://127.0.0.1:5000 --label before
+```
 
-Nothing about your local workflow changes. With no variables set you get
-`http://127.0.0.1:5000` and every `curl` above still works.
+Inside this container, use port **5000**; port **5001** is the host mapping.
+Use `exec` to call the existing API from the running container. A separate
+`docker compose run --rm app ...` container would reach the service at
+`http://app:5000`, not its own `127.0.0.1`.
 
-### This project will not fit a free host
+Download/preparation scripts should write beneath `/app/results` so their
+outputs are writable and survive container replacement. For example:
 
-Say it plainly, because the arithmetic is the point:
+```bash
+docker compose exec app python download_hc3_samples.py \
+  --output-dir /app/results/hc3
+docker compose exec app python prepare_calibration_samples.py \
+  --source-dir /app/results/hc3 --output-dir /app/results/calibration
+docker compose exec -w /app/results app python /app/beemo_file_download.py
+```
 
-| What has to be in memory | Roughly |
-|---|---|
-| `torch` | ~200–800 MB depending on the build |
-| GPT-2 Large + GPT-2 Medium weights | ~4.5 GB at FP32, plus inference overhead |
-| Flask, gunicorn, your code | the rest |
-| **A free tier gives you** | **512 MB** |
+The Beemo script writes a fixed filename in its working directory, hence the
+`-w /app/results` option. Download commands need internet access and disk space;
+they are not run automatically at startup. `test.py` is included, but its native
+virtual-environment check fails in this image, which installs Python packages
+directly. Use `python -m pip check` for container dependency consistency and
+invoke individual test modules with `python -m unittest` as needed.
 
-That's over budget before a single request arrives — and a free host has no
-persistent disk, so the model downloads start again after every idle
-spin-down. There is no configuration that fixes this. The model is the size it
-is.
+Native helper commands after environment setup include:
 
-**So pair 4 extensions take Path B — local, with logs.** That is the expected
-answer for this project, not a fallback and not a failure. Working out that a
-system doesn't fit its host *before* you spend an evening watching it get
-killed is the skill unit 9 is actually testing. Write the arithmetic above in
-your write-up; that's the deliverable.
+| Command | Purpose |
+| --- | --- |
+| `.venv/bin/python test.py` | Environment/import checks and a Flask test-client ping. |
+| `.venv/bin/python detector.py` | Score a built-in sample with the detector; downloads its model if needed. |
+| `.venv/bin/python binoculars_signal.py` | Score a built-in sample with both configured models. |
+| `.venv/bin/python stylometry.py "YOUR TEXT"` | Print style measurements for supplied text. |
+| `.venv/bin/python run_eval.py --help` | Show evaluation options without sending requests. |
+| `.venv/bin/python run_attacks.py --help` | Show attack-runner options. |
+| `.venv/bin/python run_paced_attacks.py --help` | Show options for paced attack runs. |
 
----
+Calibration fitting uses `scikit-learn`, and `beemo_file_download.py` uses
+`datasets`. Docker installs both through `requirements-docker.in` and the lock.
+They remain optional extras outside the image and are not listed in the native
+`requirements.txt`. The scripts also need their specified input datasets.
+Their availability is not implied by passing the basic environment check.
 
-## Where everything lives
+## Rate limits and attack runs
 
-| File | What it does |
-|---|---|
-| `config.py` | Every setting: thresholds, weights, rate limits, the model |
-| `app.py` | The service. `/ping` and `/log` work; `/submit` and `/appeal` are yours |
-| `detector.py` | Signal one — the local model. Given to you |
-| `stylometry.py` | Signal two. **Stubs — you build these** |
-| `scoring.py` | Combining and labelling. **Stubs — you build these** |
-| `audit.py` | The audit log writer. Given to you |
-| `run_attacks.py` | Runs the attack set — **unit 8** |
-| `run_eval.py` | Runs your criteria three times — **unit 8** |
-| `scenarios.py` | What your test runs. **You fill this in** |
-| `criteria.md` | Your five criteria. **You write all five** |
-| `logs/audit.jsonl` | Your audit log. **Commit it** |
-| `results/` | Attack runs and run logs. **Commit them** |
+These commands create submissions, audit entries, and result files. Use the
+intended instance and preserve the required order of criteria and results
+commits before collecting assignment evidence.
 
----
+`POST /submit` permits nine requests per minute and 400 per day independently
+for each IP address and each valid creator ID. Exceeding either allowance
+returns HTTP 429. Keep `RATE_LIMITING_ENABLED = True` for Unit 8 runs.
+`AI201_RATE_LIMITS` is not an implemented override. Changing creators does not
+reset the shared IP allowance. A process restart resets the in-memory counts.
 
-## The two blind spots, up front
+With `PROVENANCE_URL` set as above, a burst check is:
 
-Both signals have one, and unit 8's attack set is built out of them. You have
-to name them yourself in Milestone 1 — but knowing they exist now saves you
-from being surprised.
+```bash
+.venv/bin/python run_attacks.py --flood 15 --url "$PROVENANCE_URL"
+```
 
-**Signal one** measures how *predictable* your text is. Predictability isn't
-authorship. What it really rewards is common words in short, ordinary
-sentences — someone writing in a second language and staying with vocabulary
-they're sure of, a younger writer, anyone writing plainly on purpose. Writing
-like that scores about as machine-like as machine writing does. (Dense, ornate
-prose often goes the other way and reads as human, because rare words are what
-a language model fails to predict.) So the writers this signal is most likely
-to accuse are the ones with the least room to argue back. That is the false
-positive the whole project is about, and it's structural rather than a bug.
+It writes `results/flood_<timestamp>.md`. If the model is ready and all requests
+land within one allowance window, successful requests should be followed by
+429s. Slow inference can spread requests across windows, so the absence of a
+429 alone does not prove the limiter is disabled. Check `/health`, elapsed
+time, and existing quota usage. Warm model inference and allow the previous
+minute window to expire before a controlled burst.
 
-**Signal two** cannot read. It has no idea what the text says. Anything that
-changes the shape without changing the substance moves it — typos, broken-up
-sentences, a pasted quotation. That is very cheap to do on purpose.
+The repository includes `attack_set 3/attacks.csv` and
+`attack_set 3/attacks_malformed_requests.csv`. To inspect one without sending it:
 
----
+```bash
+.venv/bin/python run_attacks.py --set "attack_set 3" --id EV03 --show
+```
+
+To run the complete set with pacing:
+
+```bash
+.venv/bin/python run_paced_attacks.py --set "attack_set 3" \
+  --output results/attack_set3_next_run --url "$PROVENANCE_URL" --health-wait 10
+```
+
+Choose an unused output directory each time. The runner preserves input bodies,
+paces normal submissions in batches of nine per 61-second window, and begins
+flood rows in a fresh window. It records responses, timing, health checks,
+source/input hashes, and an audit excerpt. Review attack outcomes against their
+targets; HTTP success by itself does not mean an attack was resisted. Its initial
+ten-second wait does not guarantee that a previously used IP allowance is fresh.
+
+## Five criteria, three trials (Unit 8)
+
+With the intended service running and the host environment activated:
+
+```bash
+.venv/bin/python run_eval.py --label before --url "$PROVENANCE_URL"
+```
+
+`scenarios.py` defines the fixed cases in `eval_samples/samples.json`, and
+`run_eval.py` implements their checks. The runner sends 105 submissions across
+five criteria and three trials each, plus appeal requests. It checks health,
+waits ten seconds, and paces submissions at nine per 61-second window. Pacing
+alone takes roughly eleven minutes; inference and appeals can add more time.
+Avoid other submissions to that instance during a measured run. HTTP 429 is
+recorded as a failed request rather than silently retried.
+
+Each run creates a new `results/run_<timestamp>_before/` directory with a report,
+metrics, raw responses, source/input snapshots, health records, and audit
+entries. An explicit `--output results/unused_directory` selects another unused
+directory. After a documented improvement, use `--label after` with the same
+fixtures and targets. Do not change the service or fixtures between trials.
+
+The label checks use a human cutoff of 0.45 and an AI cutoff of 0.60, matching
+the current service defaults. These are the existing Unit 7/8 criteria.
+Editing `criteria.md` alone does not change the executable scenarios or checks;
+the runner snapshots that file but does not convert Markdown into tests.
+The capstone criteria use the separate runner below.
+
+When targeting Docker from host scripts, rebuild the image after code changes
+so the source files snapshotted by the runner match the service being measured.
+The runner checks host files for changes; it does not independently verify the
+container's source revision. The source of each fixed sample is documented in
+[eval_samples/README.md](eval_samples/README.md).
+
+## Capstone integrity criteria and cost measurement
+
+From the project root, run all five integrity criteria, five cases each across
+three trials, in isolated CPU Docker containers:
+
+```bash
+bash certification_data_requests/commands.sh
+```
+
+The runner builds the test image, reuses cached models and saves actual requests,
+responses, logs and a Markdown results table in a new directory. It uses separate
+test volumes; the running application's records are not its test store.
+See [the request pack](certification_data_requests/README.md) and
+[copyable commands](certification_data_requests/COMMANDS.md) for prerequisites,
+manual curl examples and supplemental regressions.
+
+For mean CPU cost over ten assessments and ten certificate verifications, use
+the [Milestone 7 measurement command](certification_data_requests/COMMANDS.md#milestone-7-measured-compute-cost).
+It requires the Compose image and its cached model volume. Results include
+`summary.json`, full measurements and structured run records; warm-up, setup
+and waiting between requests are excluded from the per-request averages.
 
 ## When something goes wrong
 
-| What you see | What it means |
-|---|---|
-| `501 not_implemented` | Correct at the start — that's the TODO in `app.py` |
-| `404` from curl | Is the server running? Is the path exactly what you typed? |
-| `Cannot bind parameter 'Headers'` | You're in PowerShell, where `curl` is a different tool. Use `curl.exe`, on one line |
-| Request body arrives empty | curl needs `-H "Content-Type: application/json"` |
-| `Address already in use` | A server left running from an earlier attempt. Kill it, don't debug it |
-| The first submission takes 10+ seconds | Signal one is loading the model into memory. Later ones take a second or two |
-| *Every* submission takes 10+ seconds | Something is reloading the model each call. `GET /health` shows `detector_loaded` — if it goes back to `false`, look for a reload in your handler |
-| `DetectorUnavailable` | Run `python detector.py` once to download the model |
-| `/appeal` seems to do nothing | Does the `content_id` you sent actually exist in the log? A typo there fails silently |
-| Every request gets through, no `429` ever | Check `GET /health`, use the same `creator_id` for each request, and confirm `RATE_LIMITING_ENABLED = True` in `config.py`. Restart after changing it |
-| Flask-Limiter warns about storage | Shouldn't happen — `storage_uri` is preconfigured. If you changed it, put it back |
-| All three of your labels never appear | Your ranges have a gap. `scoring.label_ranges()` prints them |
+| Symptom | Check or action |
+| --- | --- |
+| Cannot connect to the Docker daemon | Start Docker Desktop or the Docker Engine and confirm `docker info` works. |
+| Cannot connect to the API | Check the selected instance: host port 5001 for Docker, 5000 for default native Python. Use `/health` or `/ping`. |
+| Address/port already in use | Identify the existing service and use it, or choose another port. For Docker, set `PROVENANCE_PORT`; for native Python, set `PORT`. |
+| HTTP 400 from `/submit` | Check JSON content type, non-empty text, model token minimum, and the style minimum of three sentences and 40 words. |
+| HTTP 404 for content or appeal | The ID is unknown to this service's records. Confirm it came from the same instance. |
+| HTTP 409 during human review | Check whether review is already pending/completed, whether a decision conflicts, or whether the original text is unavailable. Read the JSON error code/message. |
+| HTTP 429 | An IP or creator allowance was exceeded; inspect the rate-limit headers and audit entry. |
+| `DetectorUnavailable` / HTTP 500 | Inspect the download/cache, connectivity, available memory, and console error; run model preparation in the same environment. |
+| HTTP 503 `model_not_ready` | Wait for `/health` to report `inference_ready`; inspect its startup error and the model cache if loading fails. |
+| HTTP 503 `circuit_open` or `inference_busy` | Respect `Retry-After`. Check `/metrics` for timeouts, concurrency, and current breaker state. |
+| HTTP 504 `request_timeout` | The request exceeded its configured processing budget. Check the operational record, CPU contention, and input length; adjust the budget explicitly if needed. |
+| Later requests are slow | Inspect `/metrics` and individual operational records for wall time, model calls, and CPU time. Model reload after a timeout takes place before scoring readiness. |
+| GPU environment variables have no effect | The current code does not implement device selection; inference is on CPU. |
+| `ModuleNotFoundError: fcntl` on Windows Python | Use a Linux container or WSL; the verification module requires Unix file locking. |
+| Script or Markdown file missing inside Docker | Rebuild and recreate with `docker compose up --build -d`; the current image includes root-level Python/Markdown files and the documented fixture folders. |
+| Helper cannot write its output | Use `/app/results` for `--output`/`--output-dir`; for Beemo use `docker compose exec -w /app/results app python /app/beemo_file_download.py`. |
+| HTTP 501 or a hardcoded placeholder response | You are likely running an older checkout or image; the current `/submit` and `/appeal` are implemented. |
+| Expected label does not appear in your samples | Inspect actual scores and thresholds. The configured ranges have no gaps; a sample set may not reach every label. |
 
-If the route won't respond, go back to `/ping`. If that answers, the problem is
-in your handler.
+## Assignment records and validation scope
 
----
+Keep the same repository for the extension. Commit the Docker build files,
+dependency lock, and updated run instructions before expecting a clean checkout
+to reproduce this Docker setup. The local Docker files must be included in the
+submitted repository; an image on one computer is not a source submission.
 
-## A note on committing
+For the capstone, commit your own five criteria before new evaluation results,
+preserve earlier evidence, and record the build/test/improvement history. The
+assignment requires at least eight new commits and its nine README sections
+under a `## Capstone` heading. `logs/` and `results/` are intentionally eligible
+for version control; Docker volumes must be copied out before their records can
+be committed. Do not commit downloaded models or the virtual environment.
 
-At least four new commits in unit 7, four more in unit 8.
-
-`logs/` and `results/` are deliberately **not** in `.gitignore`. Your audit log
-is evidence, and the entries you paste into your README are what unit 8 grades.
-
-**Do not delete and recreate this repository.** You submit the same URL both
-units.
+This guide was checked against the current code, local Python 3.12 environment,
+and running ARM64 Docker service. Verification covered the environment check,
+CLI option parsing, fixture loading, Docker configuration, and API responses in
+an isolated temporary record directory. The full timed attack/acceptance runs
+were not repeated during the documentation audit. A fresh native dependency
+installation, a clean-checkout build, AMD64 execution, and Windows execution
+were not validated in that audit.

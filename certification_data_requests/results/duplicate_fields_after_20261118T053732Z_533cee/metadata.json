@@ -1,0 +1,12 @@
+{
+  "label": "after",
+  "image_id": "sha256:5854f4b6bf281e253f7b23e5d71cd218db93af58d1f85ea8a3a01257ac1aa66c",
+  "started_at_utc": "2026-11-18T05:37:32.118274+00:00",
+  "target": "3/3 ambiguous records rejected in each of three trials",
+  "note": "Supplemental diagnostic; formal criteria 6–10 are unchanged.",
+  "script_sha256": "fd24b01d883fb5245b3473334081ee8e49d50b08ca37cf305a8dde701b2792cb",
+  "verification_sha256": "503fb9a91faa7cc5e0d70261fdae5e90cb29d3dfc042de49abbae63f7f9ee276",
+  "finished_at_utc": "2026-11-18T05:37:43.375685+00:00",
+  "completed_checks": 9,
+  "rejected_correctly": 9
+}

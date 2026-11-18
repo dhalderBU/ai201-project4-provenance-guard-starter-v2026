@@ -1,0 +1,18 @@
+{
+  "id": "case_03",
+  "fixture_id": "line_breaks",
+  "name": "LF line breaks",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/submit",
+      "json_file": "fixtures/line_breaks.submit.json",
+      "expected_status": 200
+    }
+  ],
+  "checks": [
+    "Submit and approve the original text.",
+    "Compare complete UTF-8 SHA-256, lowercase 64-character hash and final-eight-character ID.",
+    "Certificate record and approval audit record must contain the same ID and hash."
+  ]
+}

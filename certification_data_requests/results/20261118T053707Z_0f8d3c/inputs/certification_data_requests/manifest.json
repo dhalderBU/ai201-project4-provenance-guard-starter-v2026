@@ -1,0 +1,11 @@
+{
+  "runs": 3,
+  "cases_per_criterion": 5,
+  "criteria": [
+    "criterion_06/criterion.json",
+    "criterion_07/criterion.json",
+    "criterion_08/criterion.json",
+    "criterion_09/criterion.json",
+    "criterion_10/criterion.json"
+  ]
+}

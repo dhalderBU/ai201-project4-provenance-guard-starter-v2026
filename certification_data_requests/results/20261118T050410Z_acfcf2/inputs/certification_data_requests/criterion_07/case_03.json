@@ -1,0 +1,23 @@
+{
+  "id": "case_03",
+  "fixture_id": "line_breaks",
+  "name": "LF line breaks",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_07/requests/case_03_unchanged.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": true,
+        "status": "verified"
+      },
+      "repeat": 2
+    }
+  ],
+  "checks": [
+    "Setup: approve two separate submissions of this exact text, with distinct approval timestamps.",
+    "Both lookups must return HTTP 200, verified: true and status: verified.",
+    "Both responses must identify the latest matching approval by certificate ID, content ID and both certification timestamps."
+  ]
+}

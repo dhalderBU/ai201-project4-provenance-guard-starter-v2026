@@ -33,6 +33,7 @@ the two signals share one download.
 import math
 
 import config
+import model_metrics
 
 # Your existing perplexity module: reuses its _load() and error classes.
 # It's imported as `detector` in the starter; fall back to other common names.
@@ -105,7 +106,9 @@ def binoculars_score(text: str) -> dict:
     skip = min(SKIP_TOKENS, max(input_ids.shape[1] - 3, 0))
 
     with torch.no_grad():
-        obs_logits = observer(input_ids).logits[:, skip:-1, :]   # predicts tokens skip+1..T-1
+        with model_metrics.forward_pass(config.DETECTOR_MODEL, "binoculars_observer", input_ids.shape[1],
+                                        input_ids.shape[1] - 1 - skip):
+            obs_logits = observer(input_ids).logits[:, skip:-1, :]   # predicts tokens skip+1..T-1
         targets = input_ids[:, skip + 1:]
 
         # (1) observer's log-perplexity = mean NLL of the actual tokens
@@ -114,7 +117,9 @@ def binoculars_score(text: str) -> dict:
         # (2) cross-perplexity
         logp_obs = F.log_softmax(obs_logits, dim=-1)
         if performer is not None:
-            perf_logits = performer(input_ids).logits[:, skip:-1, :]
+            with model_metrics.forward_pass(PERFORMER, "binoculars_performer", input_ids.shape[1],
+                                            input_ids.shape[1] - 1 - skip):
+                perf_logits = performer(input_ids).logits[:, skip:-1, :]
             p_perf = F.softmax(perf_logits, dim=-1)
             x_ppl = -(p_perf * logp_obs).sum(-1).mean().item()
         else:

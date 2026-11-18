@@ -1,8 +1,10 @@
-"""Manual draft review and item-specific certificates, persisted in JSONL logs."""
+"""Manual review, persisted certificates, and exact-text certificate verification."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
+import hashlib
+import hmac
 import json
 import os
 import threading
@@ -11,6 +13,7 @@ import uuid
 import audit
 import config
 import submissions
+import operations
 
 
 _lock = threading.Lock()
@@ -37,12 +40,23 @@ def _locked():
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def _certificate_object(pairs):
+    """Reject ambiguous JSON before its earlier field values can be discarded."""
+    record = {}
+    for key, value in pairs:
+        if key in record:
+            raise ValueError(f"Duplicate field in certificate record: {key}")
+        record[key] = value
+    return record
+
+
 def _certificates():
     path = config.VERIFIED_HUMAN_CERTIFICATION_LOG
     if not path.exists():
         return []
     # Fail on a damaged certificate log instead of overlooking existing IDs.
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+    return [json.loads(line, object_pairs_hook=_certificate_object)
+            for line in path.read_text(encoding="utf-8").splitlines()
             if line.strip()]
 
 
@@ -51,6 +65,31 @@ def _unique_id(prefix, existing):
         candidate = prefix + uuid.uuid4().hex[:16]
         if candidate not in existing:
             return candidate
+
+
+def _content_hash(text):
+    """Hash the complete UTF-8 text without trimming or normalization."""
+    try:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    except UnicodeEncodeError as exc:
+        raise VerificationError("text must contain valid UTF-8 characters.") from exc
+
+
+def _certification_time(record):
+    """Return an approval's UTC instant; never substitute lookup time."""
+    try:
+        moment = datetime.fromisoformat(record["timestamp"])
+        displayed = datetime.strptime(record["credential"]["verified_dt_time"],
+                                      "%Y-%m-%d %H:%M:%S UTC").replace(tzinfo=timezone.utc)
+        if moment.tzinfo is None:
+            raise ValueError("Certification timestamp needs a timezone")
+        moment = moment.astimezone(timezone.utc)
+        if moment.replace(microsecond=0) != displayed:
+            raise ValueError("Certification timestamps disagree")
+        return moment
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise VerificationError("The certificate has unusable certification timestamps.",
+                                409, "certificate_unverifiable") from exc
 
 
 def _review(entries, certificates, request_id):
@@ -117,6 +156,7 @@ def request_review(content_id, reasoning, additional_text):
                 raise VerificationError("This item already has a pending human-verification request.",
                                         409, "verification_pending")
         request_id = _unique_id("vr_", {entry.get("verification_request_id") for entry in entries})
+        operations.before_persist()
         return audit.log_verification(
             content_id=content_id,
             creator_id=submission["creator_id"] if submission is not None else original.get("creator_id", "unknown"),
@@ -153,6 +193,7 @@ def review_content(content_id, status, reviewer, notes):
             # Recover an approved review if its certificate was saved but audit writing failed.
             if not any(entry.get("event") == REVIEW_EVENT
                        and entry.get("verification_request_id") == request_id for entry in entries):
+                operations.before_persist()
                 audit.log_verification(**existing)
             return existing
 
@@ -165,17 +206,18 @@ def review_content(content_id, status, reviewer, notes):
         now = datetime.now(timezone.utc)
         credential = None
         if status == "certified":
-            certificate_id = _unique_id("vh_", {
-                entry["credential"]["Certificate_id"] for entry in certificates
-            })
+            content_hash = _content_hash(text)
             credential = {
                 "type": "verified_human",
                 "method": "draft_review",
-                "Certificate_id": certificate_id,
+                "Certificate_id": content_hash[-8:],
                 "verified_dt_time": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "hash_algorithm": "sha256",
+                "content_hash": content_hash,
             }
         review = {
-            "timestamp": now.isoformat(timespec="seconds"),
+            # Preserve subsecond order when identical text is approved twice.
+            "timestamp": now.isoformat(timespec="microseconds"),
             "content_id": request["content_id"],
             "creator_id": request["creator_id"],
             "event": REVIEW_EVENT,
@@ -187,6 +229,7 @@ def review_content(content_id, status, reviewer, notes):
             "review_notes": notes.strip(),
             "credential": credential,
         }
+        operations.before_persist()
         if credential is not None:
             path = config.VERIFIED_HUMAN_CERTIFICATION_LOG
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -218,3 +261,75 @@ def content_status(content_id):
             if review and entries[-1].get("event") == REQUEST_EVENT:
                 result["status"] = review["status"]
         return result
+
+
+def verify_content(certificate_id, text):
+    """Verify the full hash and return the latest matching certification activity.
+
+    This is a lookup, not another review: it never runs a model, changes a
+    workflow status, or backfills old certificates from mutable submission text.
+    A short ID can repeat, even for different full hashes; it is only a lookup key.
+    """
+    if not isinstance(certificate_id, str) or not certificate_id.strip():
+        raise VerificationError("Provide a non-empty certificate_id.")
+    if not isinstance(text, str) or not text.strip():
+        raise VerificationError("Provide non-empty text to verify.")
+    certificate_id = certificate_id.strip()
+    presented_hash = _content_hash(text)
+
+    with _locked():
+        try:
+            certificates = _certificates()
+        except (OSError, ValueError) as exc:
+            raise VerificationError("Certificate records could not be read.",
+                                    503, "certificate_store_unavailable") from exc
+        if any(not isinstance(record, dict)
+               or not isinstance(record.get("credential"), dict) for record in certificates):
+            raise VerificationError("Certificate records could not be read.",
+                                    503, "certificate_store_unavailable")
+        matches = [record for record in certificates
+                   if record["credential"].get("Certificate_id") == certificate_id]
+        if not matches:
+            raise VerificationError("No certificate exists for that certificate_id.",
+                                    404, "certificate_not_found")
+        short_id = len(certificate_id) == 8 and all(c in "0123456789abcdef" for c in certificate_id)
+        candidates, seen_events = [], {}
+        for index, record in enumerate(matches):
+            operations.check_deadline()
+            credential = record["credential"]
+            stored_hash = credential.get("content_hash")
+            request_id = record.get("verification_request_id")
+            if (record.get("status") != "certified"
+                    or record.get("review_decision") != "certified"
+                    or not isinstance(record.get("content_id"), str) or not record["content_id"]
+                    or not isinstance(request_id, str) or not request_id
+                    or credential.get("type") != "verified_human"
+                    or credential.get("hash_algorithm") != "sha256"
+                    or not isinstance(stored_hash, str) or len(stored_hash) != 64
+                    or any(char not in "0123456789abcdef" for char in stored_hash)
+                    or (short_id and stored_hash[-8:] != certificate_id)):
+                raise VerificationError("This certificate has no usable SHA-256 certification record.",
+                                        409, "certificate_unverifiable")
+            if request_id in seen_events and seen_events[request_id] != record:
+                raise VerificationError("The certification activity has conflicting records.",
+                                        409, "certificate_unverifiable")
+            seen_events[request_id] = record
+            candidates.append((_certification_time(record), index, record))
+
+        matching = [candidate for candidate in candidates if hmac.compare_digest(
+            presented_hash, candidate[2]["credential"]["content_hash"])]
+        verified = bool(matching)
+        # Timestamp order, with append order breaking exact ties. Never select
+        # a newer approval of different content that shares the short suffix.
+        latest = max(matching or candidates, key=lambda candidate: candidate[:2])
+        record = latest[2]
+        unambiguous = len({row[2]["credential"]["content_hash"] for row in candidates}) == 1
+        return {
+            "certificate_id": certificate_id,
+            "content_id": record["content_id"] if verified or unambiguous else None,
+            "verified": verified,
+            "status": "verified" if verified else "content_mismatch",
+            "hash_algorithm": "sha256",
+            "verified_dt_time": record["credential"]["verified_dt_time"] if verified else None,
+            "latest_certification_at": latest[0].isoformat() if verified else None,
+        }

@@ -1,0 +1,39 @@
+{
+  "id": "case_04",
+  "name": "invalid_input",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/missing_id.json",
+      "expected_status": 400,
+      "expected_fields": {
+        "verified": false,
+        "error": "bad_request"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/empty_id.json",
+      "expected_status": 400,
+      "expected_fields": {
+        "verified": false,
+        "error": "bad_request"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/missing_text.json",
+      "expected_status": 400,
+      "expected_fields": {
+        "verified": false,
+        "error": "bad_request"
+      }
+    }
+  ],
+  "checks": [
+    "Every request in this failure category must return the exact status/error and verified: false."
+  ]
+}

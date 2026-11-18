@@ -1,0 +1,35 @@
+{
+  "assessment": {
+    "runs": 10,
+    "total_cpu_seconds": 58.173868891,
+    "mean_cpu_seconds": 5.8173868891,
+    "mean_server_seconds": 0.3079791001000558,
+    "p50_server_seconds": 0.29946302100870525,
+    "p95_server_seconds": 0.3461600792477838,
+    "mean_client_seconds": 0.32159631678950973,
+    "cpu_seconds_for_100_requests": 581.73868891,
+    "models_total": {
+      "gpt2": {
+        "calls": 20,
+        "input_tokens": 8000,
+        "output_tokens": 0
+      },
+      "distilgpt2": {
+        "calls": 10,
+        "input_tokens": 4000,
+        "output_tokens": 0
+      }
+    }
+  },
+  "verification": {
+    "runs": 10,
+    "total_cpu_seconds": 0.005986667000000001,
+    "mean_cpu_seconds": 0.0005986667000000001,
+    "mean_server_seconds": 0.0005994165010633878,
+    "p50_server_seconds": 0.00033716649340931326,
+    "p95_server_seconds": 0.0017606786532269303,
+    "mean_client_seconds": 0.01275586248957552,
+    "cpu_seconds_for_100_requests": 0.05986667000000001,
+    "models_total": {}
+  }
+}

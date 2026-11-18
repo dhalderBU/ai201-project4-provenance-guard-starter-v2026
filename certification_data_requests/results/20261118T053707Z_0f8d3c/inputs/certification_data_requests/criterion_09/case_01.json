@@ -1,0 +1,59 @@
+{
+  "id": "case_01",
+  "name": "wrong_pairing",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/wrong_pair_01.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/wrong_pair_02.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/wrong_pair_03.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/wrong_pair_04.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/wrong_pair_05.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    }
+  ],
+  "checks": [
+    "Every request in this failure category must return the exact status/error and verified: false."
+  ]
+}

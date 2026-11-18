@@ -1,0 +1,50 @@
+{
+  "id": "case_03",
+  "fixture_id": "line_breaks",
+  "name": "LF line breaks",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_03_word.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_03_punctuation.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_03_space.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_03_case.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    }
+  ],
+  "checks": [
+    "All four independently altered versions must fail verification."
+  ]
+}

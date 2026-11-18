@@ -1,0 +1,27 @@
+--- before/verification.py
++++ after/verification.py
+@@ -40,12 +40,23 @@
+             fcntl.flock(handle, fcntl.LOCK_UN)
+ 
+ 
++def _certificate_object(pairs):
++    """Reject ambiguous JSON before its earlier field values can be discarded."""
++    record = {}
++    for key, value in pairs:
++        if key in record:
++            raise ValueError(f"Duplicate field in certificate record: {key}")
++        record[key] = value
++    return record
++
++
+ def _certificates():
+     path = config.VERIFIED_HUMAN_CERTIFICATION_LOG
+     if not path.exists():
+         return []
+     # Fail on a damaged certificate log instead of overlooking existing IDs.
+-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
++    return [json.loads(line, object_pairs_hook=_certificate_object)
++            for line in path.read_text(encoding="utf-8").splitlines()
+             if line.strip()]
+ 
+ 

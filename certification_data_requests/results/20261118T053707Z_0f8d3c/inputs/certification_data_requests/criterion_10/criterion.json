@@ -1,0 +1,12 @@
+{
+  "number": 10,
+  "name": "Certification survives container replacement",
+  "target": "5/5 certificates retain evidence and verification after replacement",
+  "cases": [
+    "criterion_10/case_01.json",
+    "criterion_10/case_02.json",
+    "criterion_10/case_03.json",
+    "criterion_10/case_04.json",
+    "criterion_10/case_05.json"
+  ]
+}

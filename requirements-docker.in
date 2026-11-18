@@ -1,0 +1,16 @@
+# Match the application's installed direct dependencies; resolve for Python 3.12.
+# The Docker lock uses CPU PyTorch wheels so CUDA libraries are not bundled.
+--extra-index-url https://download.pytorch.org/whl/cpu
+-r requirements.txt
+Flask==3.1.3
+Flask-Limiter==3.12
+requests==2.34.2
+transformers==4.57.6
+torch==2.14.1
+gunicorn==23.0.0
+certifi==2026.10.23
+
+# Optional command-line tools packaged alongside the service.
+# Calibration fitting imports sklearn; Beemo downloading imports datasets.
+scikit-learn==1.9.1
+datasets>=4,<5

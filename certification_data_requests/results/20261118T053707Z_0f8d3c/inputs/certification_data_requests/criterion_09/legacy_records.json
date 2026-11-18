@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-11-17T00:00:00+00:00",
+    "content_id": "c_seed_legacy_1",
+    "creator_id": "legacy_test",
+    "event": "human_verification_review",
+    "status": "certified",
+    "review_type": "human_verification",
+    "verification_request_id": "vr_seed_legacy_1",
+    "review_decision": "certified",
+    "reviewer": "Legacy fixture",
+    "review_notes": "Intentionally lacks hash metadata.",
+    "credential": {
+      "type": "verified_human",
+      "method": "draft_review",
+      "Certificate_id": "legacy_test_1",
+      "verified_dt_time": "2026-11-17 00:00:00 UTC"
+    }
+  },
+  {
+    "timestamp": "2026-11-17T00:00:00+00:00",
+    "content_id": "c_seed_legacy_2",
+    "creator_id": "legacy_test",
+    "event": "human_verification_review",
+    "status": "certified",
+    "review_type": "human_verification",
+    "verification_request_id": "vr_seed_legacy_2",
+    "review_decision": "certified",
+    "reviewer": "Legacy fixture",
+    "review_notes": "Intentionally lacks hash metadata.",
+    "credential": {
+      "type": "verified_human",
+      "method": "draft_review",
+      "Certificate_id": "legacy_test_2",
+      "verified_dt_time": "2026-11-17 00:00:00 UTC"
+    }
+  }
+]

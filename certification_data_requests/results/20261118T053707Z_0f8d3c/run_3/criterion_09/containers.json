@@ -1,0 +1,33 @@
+[
+  {
+    "container_id": "52382a22b4072c71e6a0fe2ce82ea900cfa27116f3f7d30d5ce5f60d5a49a332",
+    "url": "http://127.0.0.1:51669",
+    "started_at": "2026-11-18T05:41:13.770650+00:00",
+    "log_volume": "certification-test-156957169eed-logs",
+    "ready_health": {
+      "binoculars_loaded": true,
+      "binoculars_performer": "distilgpt2",
+      "binoculars_startup_error": null,
+      "circuit_breaker": {
+        "consecutive_timeouts": 0,
+        "retry_after_seconds": 0.0,
+        "state": "closed"
+      },
+      "circuit_breaker_enabled": true,
+      "detector_loaded": true,
+      "detector_model": "gpt2",
+      "inference_ready": true,
+      "inference_startup_error": null,
+      "log_entries": 0,
+      "ok": true,
+      "rate_limiting": true,
+      "request_timeout_enabled": true,
+      "request_timeout_seconds": 3.0
+    },
+    "settings": {
+      "minute_limit": 9,
+      "day_limit": 400,
+      "timeout": 3.0
+    }
+  }
+]

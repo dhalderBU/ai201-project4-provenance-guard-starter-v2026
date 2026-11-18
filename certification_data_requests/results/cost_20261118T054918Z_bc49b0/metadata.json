@@ -1,0 +1,63 @@
+{
+  "started_at_utc": "2026-11-18T05:49:18.195278+00:00",
+  "image_id": "sha256:63774f68e33bdb47243996d4906d82f5304937323168c463fa9b096e423d673a",
+  "fixture": {
+    "id": "long_text",
+    "name": "Beyond 400 GPT-2 tokens",
+    "submit_file": "fixtures/long_text.submit.json",
+    "sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908",
+    "certificate_id": "79ee2908",
+    "word_count": 458,
+    "word_edit_original": "amber",
+    "word_edit_replacement": "violet"
+  },
+  "script_sha256": "ec9c025c618b7f4fcacbdd3fc819afe93fb74f08901acbb1a57fd65e91c18fb6",
+  "warm_definition": "Models loaded; one assessment and certificate approval completed before measurement.",
+  "cost_metric": "Operational cpu_time_seconds: handler thread CPU plus inference child-process CPU.",
+  "excluded": [
+    "model download/startup",
+    "warm-up",
+    "approval setup",
+    "human review effort",
+    "rate-limit waiting between calls",
+    "idle CPU",
+    "network transfer",
+    "storage and electricity cost"
+  ],
+  "request_policy": "Ten sequential requests per workload, unchanged application defaults, no retries.",
+  "health": {
+    "binoculars_loaded": true,
+    "binoculars_performer": "distilgpt2",
+    "binoculars_startup_error": null,
+    "circuit_breaker": {
+      "consecutive_timeouts": 0,
+      "retry_after_seconds": 0.0,
+      "state": "closed"
+    },
+    "circuit_breaker_enabled": true,
+    "detector_loaded": true,
+    "detector_model": "gpt2",
+    "inference_ready": true,
+    "inference_startup_error": null,
+    "log_entries": 0,
+    "ok": true,
+    "rate_limiting": true,
+    "request_timeout_enabled": true,
+    "request_timeout_seconds": 3.0
+  },
+  "runtime": {
+    "python": "3.12.16",
+    "architecture": "aarch64",
+    "visible_cpus": 24,
+    "torch_threads": 24
+  },
+  "application_sha256": {
+    "app.py": "927306577837aeb4b454e58cc5eab2cc2fb13ba0b6b895b1d68b7080eed25a85",
+    "config.py": "62056f6b35a2e47209d9b4869eaefbbbdc7cbc570a26b07195e4e0bfb84e2490",
+    "operations.py": "0ac32d8d7140d6feaac8395c088b821bec7844c38cb7239d1e4ac3513c6d228d",
+    "inference_runtime.py": "537e20bc8f63c96befd8bd4022fe1d0c781a14fa6515ce7e2a3b4c50c522e65d",
+    "verification.py": "503fb9a91faa7cc5e0d70261fdae5e90cb29d3dfc042de49abbae63f7f9ee276"
+  },
+  "finished_at_utc": "2026-11-18T05:50:24.755049+00:00",
+  "measurement_rows": 21
+}

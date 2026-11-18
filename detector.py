@@ -44,6 +44,7 @@ for yourself where it lands.
 import math
 
 import config
+import model_metrics
 
 _model = None
 _tokenizer = None
@@ -112,7 +113,8 @@ def perplexity(text: str) -> float:
         # Give the route a specific error it can return as a bad request.
         raise TextTooShortError("Text is too short to score — a few sentences at least.")
 
-    with torch.no_grad():
+    with model_metrics.forward_pass(config.DETECTOR_MODEL, "perplexity", input_ids.shape[1],
+                                    input_ids.shape[1] - 1), torch.no_grad():
         output = model(input_ids, labels=input_ids)
 
     # The model's loss here IS mean negative log-likelihood per token.

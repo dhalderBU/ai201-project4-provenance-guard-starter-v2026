@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    image: provenance-guard:local
+    init: true
+    environment:
+      AI201_REQUEST_TIMEOUT_ENABLED: "${AI201_REQUEST_TIMEOUT_ENABLED:-1}"
+      AI201_REQUEST_TIMEOUT_SECONDS: "${AI201_REQUEST_TIMEOUT_SECONDS:-3}"
+      AI201_CIRCUIT_BREAKER_ENABLED: "${AI201_CIRCUIT_BREAKER_ENABLED:-1}"
+      AI201_CIRCUIT_BREAKER_FAILURE_THRESHOLD: "${AI201_CIRCUIT_BREAKER_FAILURE_THRESHOLD:-3}"
+      AI201_CIRCUIT_BREAKER_RECOVERY_SECONDS: "${AI201_CIRCUIT_BREAKER_RECOVERY_SECONDS:-30}"
+      AI201_OPERATIONAL_METRICS_ENABLED: "${AI201_OPERATIONAL_METRICS_ENABLED:-1}"
+    ports:
+      - "127.0.0.1:${PROVENANCE_PORT:-5001}:5000"
+    volumes:
+      - app-data:/app/logs
+      - app-results:/app/results
+      - model-cache:/models
+
+volumes:
+  app-data:
+  app-results:
+  model-cache:

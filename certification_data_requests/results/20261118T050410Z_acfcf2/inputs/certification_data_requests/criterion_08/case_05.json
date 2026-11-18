@@ -1,0 +1,51 @@
+{
+  "id": "case_05",
+  "fixture_id": "long_text",
+  "name": "Beyond 400 GPT-2 tokens",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_05_word.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_05_punctuation.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_05_space.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_08/requests/case_05_case.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    }
+  ],
+  "checks": [
+    "All four independently altered versions must fail verification.",
+    "The word replacement starts after GPT-2 token 400; validate with the untruncated tokenizer."
+  ]
+}

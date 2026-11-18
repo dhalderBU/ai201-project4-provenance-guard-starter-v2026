@@ -1,0 +1,18 @@
+{
+  "id": "case_05",
+  "fixture_id": "long_text",
+  "name": "Beyond 400 GPT-2 tokens",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/submit",
+      "json_file": "fixtures/long_text.submit.json",
+      "expected_status": 200
+    }
+  ],
+  "checks": [
+    "Submit and approve the original text.",
+    "Compare complete UTF-8 SHA-256, lowercase 64-character hash and final-eight-character ID.",
+    "Certificate record and approval audit record must contain the same ID and hash."
+  ]
+}

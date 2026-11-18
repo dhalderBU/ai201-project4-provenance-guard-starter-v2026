@@ -1,0 +1,20 @@
+{
+  "id": "case_05",
+  "name": "corrupt_storage",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_09/requests/corrupt_storage.json",
+      "expected_status": 503,
+      "expected_fields": {
+        "verified": false,
+        "error": "certificate_store_unavailable"
+      }
+    }
+  ],
+  "checks": [
+    "Every request in this failure category must return the exact status/error and verified: false."
+  ],
+  "append_to_certificate_store": "{broken\n"
+}

@@ -1,0 +1,101 @@
+[
+  {
+    "run": 1,
+    "duplicate_field": "content_hash",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 1,
+    "duplicate_field": "Certificate_id",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 1,
+    "duplicate_field": "status",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 2,
+    "duplicate_field": "content_hash",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 2,
+    "duplicate_field": "Certificate_id",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 2,
+    "duplicate_field": "status",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 3,
+    "duplicate_field": "content_hash",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 3,
+    "duplicate_field": "Certificate_id",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  },
+  {
+    "run": 3,
+    "duplicate_field": "status",
+    "http_status": 503,
+    "response": {
+      "error": "certificate_store_unavailable",
+      "message": "Certificate records could not be read.",
+      "verified": false
+    },
+    "passed": true
+  }
+]

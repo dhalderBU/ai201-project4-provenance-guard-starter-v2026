@@ -1,0 +1,32 @@
+{
+  "id": "case_02",
+  "fixture_id": "unicode",
+  "name": "Non-ASCII characters",
+  "requests": [
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_10/requests/case_02_original.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": true,
+        "status": "verified"
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/verification/verify",
+      "json_file": "criterion_10/requests/case_02_one_character_edit.json",
+      "expected_status": 200,
+      "expected_fields": {
+        "verified": false,
+        "status": "content_mismatch"
+      }
+    }
+  ],
+  "checks": [
+    "Replace the container while retaining the same dedicated log volume.",
+    "Exactly five certificate records must remain; this certificate and its approval audit record must equal their original saved records.",
+    "After replacement, the original text must verify and the fixed trailing-space variant must fail with the specified responses."
+  ]
+}

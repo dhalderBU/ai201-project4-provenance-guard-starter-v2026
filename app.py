@@ -21,10 +21,12 @@ Routes:
     POST /submit      ← YOU BUILD THIS (Milestone 3, 4, 5)
     POST /appeal      ← YOU BUILD THIS (Milestone 5)
     POST /verification/review  reviewer decision: certified or not_certified
+    POST /verification/verify  check presented text against a certificate's hash
     GET  /verification/review/<id>  original submission and human-review evidence
     GET  /content/<id> the item's latest recorded status
     GET  /log         the audit log. Already works
     GET  /health      is the service up, and is the model loaded
+    GET  /metrics     operational statistics for the last N hours
 """
 
 # from email.mime import text  # Not needed: text comes from the JSON payload.
@@ -37,8 +39,11 @@ import audit
 import config
 import submissions
 import verification
+import operations
+import inference_runtime
 
 app = Flask(__name__)
+operations.install(app)
 
 
 @app.errorhandler(verification.VerificationError)
@@ -150,6 +155,9 @@ def health():
         loaded if binoculars_performer is None          # single-model mode reuses the detector
         else binoculars_signal._performer is not None
     )
+    runtime = inference_runtime.engine.snapshot() if config.INFERENCE_PROCESS_ENABLED else None
+    if runtime is not None:
+        loaded, binoculars_loaded = runtime["ready"], runtime["binoculars_ready"]
     # ***deb ..end of stretch feature*** binocular***
 
     return jsonify({
@@ -162,6 +170,13 @@ def health():
         # ***deb ..end of stretch feature*** binocular***
         "rate_limiting": config.RATE_LIMITING_ENABLED,
         "log_entries": len(audit.read_entries()),
+        "inference_ready": loaded,
+        "inference_startup_error": runtime["startup_error"] if runtime else None,
+        "binoculars_startup_error": runtime["binoculars_error"] if runtime else None,
+        "request_timeout_enabled": config.REQUEST_TIMEOUT_ENABLED,
+        "request_timeout_seconds": config.REQUEST_TIMEOUT_SECONDS,
+        "circuit_breaker_enabled": config.CIRCUIT_BREAKER_ENABLED,
+        "circuit_breaker": inference_runtime.breaker.snapshot(),
     })
 
 
@@ -259,7 +274,7 @@ def submit():
 
     # Below lines commented so as to setup styling with default values uncomment once the logic is implemented
     try:
-        perplexity_score = detector.model_signal(text)
+        perplexity_score = inference_runtime.call("perplexity", text)
     except detector.TextTooShortError as exc:
         audit.log_rejection(
             creator_id=creator_id, reason="insufficient_model_input",
@@ -297,7 +312,7 @@ def submit():
     word_count = len(text.split())
 
     try:
-        binoculars_score = binoculars_signal.binoculars_signal(text)
+        binoculars_score = inference_runtime.call("binoculars", text)
         binoculars_available = True
     except detector.DetectorUnavailable:
         binoculars_score = None
@@ -316,7 +331,7 @@ def submit():
     #style_score = 0.5
 
     try:
-        style_score = stylometry.style_signal(text)
+        style_score = inference_runtime.call("style", text)
     except stylometry.TextTooShortError as exc:
         audit.log_rejection(
             creator_id=creator_id, reason="insufficient_style_input",
@@ -352,6 +367,7 @@ def submit():
         binoculars_used=binoculars_used,
         word_count=word_count,
     )
+    operations.before_persist()
     submissions.save_submission(content_id, creator_id, text, **decision_fields)
     audit.log_decision(content_id=content_id, creator_id=creator_id, **decision_fields)
 
@@ -436,6 +452,7 @@ def appeal():
     appeal_id = f"a_{uuid.uuid4().hex[:12]}"
     # Record acceptance before running inference, so even a failed recheck
     # leaves the writer's appeal and under_review status in the audit trail.
+    operations.check_deadline()
     audit.log_appeal(content_id, creator_id, reasoning,
                      appeal_id=appeal_id, review_type=review_type)
 
@@ -443,7 +460,8 @@ def appeal():
 
     submission = submissions.for_decision(decision)
     original_text = submission["text"] if submission is not None else None
-    result = appeals.reassess(original_text)
+    result = inference_runtime.call("appeal", original_text)
+    operations.before_persist()
     audit.log_appeal_result(content_id, creator_id, appeal_id, review_type=review_type, **result)
     return jsonify({
         "content_id": content_id,
@@ -491,6 +509,43 @@ def review_verification():
     }), 200
 
 
+@app.post("/verification/verify")
+def verify_certified_content():
+    """Verify the full content hash and return its latest certification time."""
+    try:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            raise verification.VerificationError(
+                "Send a JSON object containing certificate_id and text."
+            )
+        result = verification.verify_content(payload.get("certificate_id"), payload.get("text"))
+    except verification.VerificationError as exc:
+        return jsonify({"verified": False, "error": exc.code, "message": str(exc)}), exc.status_code
+    except OSError:
+        # Includes failure to create/open the lock before the store can be read.
+        return jsonify({"verified": False, "error": "certificate_store_unavailable",
+                        "message": "Certificate records could not be read."}), 503
+    return jsonify(result), 200
+
+
+@app.get("/metrics")
+def operational_metrics():
+    """Return received/completed requests and operational statistics for the last N hours."""
+    try:
+        hours = float(request.args.get("hours", config.METRICS_DEFAULT_HOURS))
+        result = operations.summarize(hours)
+    except (ValueError, OverflowError) as exc:
+        return jsonify(error="bad_request", message=str(exc)), 400
+    except OSError:
+        return jsonify(error="operational_log_unavailable"), 503
+    result["current_timeout_seconds"] = config.REQUEST_TIMEOUT_SECONDS
+    result["circuit_breaker"] = inference_runtime.breaker.snapshot()
+    response = jsonify(result)
+    if request.args.get("download") == "1":
+        response.headers["Content-Disposition"] = f'attachment; filename="operational-metrics-last-{hours:g}-hours.json"'
+    return response
+
+
 # ── Already works ─────────────────────────────────────────────────────────────
 
 @app.get("/log")
@@ -530,6 +585,10 @@ def main():
     print("    -d '{\"message\": \"hello\"}'")
     print()
     # debug=True hands out an interactive debugger, so it's local-only — see config.py
+    # Only the serving process needs models when Werkzeug uses its reloader.
+    from werkzeug.serving import is_running_from_reloader
+    if not config.DEBUG or is_running_from_reloader():
+        inference_runtime.engine.start()
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG)
 
 
