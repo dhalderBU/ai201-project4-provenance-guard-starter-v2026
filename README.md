@@ -2281,3 +2281,6 @@ criterion was left unchanged for the before/after comparison.
 **Tradeoff:** One ambiguous record now makes verification unavailable until the store is repaired, including lookups for otherwise valid records. This extends the existing fail-closed behavior for malformed JSON; it does not repair records or provide cryptographic protection against someone rewriting the store.
 
 <!-- Unit9 Milestone 6 end -->
+
+<!-- Unit9 Milestone 7 start -->
+
