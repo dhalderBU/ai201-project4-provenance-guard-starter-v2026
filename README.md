@@ -1821,3 +1821,6 @@ Commit as you go. At least three commits in this milestone alone.          -->
 **Built:** `verification.py` saves `hash_algorithm="sha256"`, the full content hash(i.e the text submitted) and 8 character length `Certificate_id = content_hash` (thisi sthe last 8 character of the hash caulated from the original text submitted) , the same is logged. 
 The hash and certificate ID are stored in logs/certification_log.jsonl, configured in `config.py` CERTIFICATION_LOG = LOG_DIR / "certification_log.jsonl". If a conten has been previously certified wither automated or human then we also send  a "message": "This content is already certified."
 `POST /verification/verify` accepts `certificate_id` and `text`, compares the full hash and returns the latest matching approval's content ID and UTC timestamps. A certificate id is only useful when the original conten is provided as for all content it generates the hash an then uses the last 8 character as the certificate ID 
+
+**Responses status(POST /verification/verify):** exact match against a valid certificate → 200, verified: true; changed text → 200, verified: false; invalid input → 400; unknown certificate ID, including a missing or empty store → 404; unusable or conflicting certificate → 409; unreadable or corrupt store → 503; request timeout → 504
+
