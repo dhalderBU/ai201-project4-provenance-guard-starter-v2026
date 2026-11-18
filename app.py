@@ -202,7 +202,8 @@ def submit():
     Expects JSON:
         {"text": "...", "creator_id": "..."}
 
-    Should return JSON with, at minimum:
+    An exact certified text returns its existing approval with already_certified.
+    Otherwise, return JSON with, at minimum:
         {"content_id": "...", "guess": "...", "confidence": 0.0, "label": "...",
          "model_score": 0.0, "style_score": 0.0}
 
@@ -265,6 +266,23 @@ def submit():
             creator_id=creator_id, reason="missing_or_invalid_text", http_status=400,
         )
         return jsonify({"error": "bad_request", "message": "Send JSON with a non-empty \"text\"."}), 400
+
+    # An existing approval is bound to the full text, irrespective of who
+    # submits it again. Return its original identity and dates without rescoring.
+    try:
+        certification = verification.find_certified_content(text)
+    except OSError:
+        return jsonify({"error": "certificate_store_unavailable",
+                        "message": "Certificate records could not be read."}), 503
+    if certification is not None:
+        return jsonify({
+            "http_status": 200,
+            "status": "already_certified",
+            "already_certified": True,
+            "verified": True,
+            "message": "This content is already certified.",
+            **certification,
+        }), 200
 
     # Step 3 - one real signal that we first tested from the terminal
     # python detector.py "some text"
@@ -370,6 +388,14 @@ def submit():
     operations.before_persist()
     submissions.save_submission(content_id, creator_id, text, **decision_fields)
     audit.log_decision(content_id=content_id, creator_id=creator_id, **decision_fields)
+    certification = verification.certify_assessment(
+        content_id, creator_id, text, decision_fields, "submission", content_id,
+    )
+    certification_fields = ({
+        "certification_status": "certified",
+        "certificate_id": certification["credential"]["Certificate_id"],
+        "credential": certification["credential"],
+    } if certification is not None else {})
 
     # ***deb..start stretch feature*** binocular***
     # The log records the model score used, both component scores, whether
@@ -390,6 +416,7 @@ def submit():
         "confidence": confidence,
         "model_score": model_score,
         "style_score": style_score,
+        **certification_fields,
         # ***deb..start stretch feature*** binocular***
         # model_score above is what the decision used (average of the two when
         # Binoculars ran). These are its components, for the eval reports and
@@ -461,6 +488,13 @@ def appeal():
     submission = submissions.for_decision(decision)
     original_text = submission["text"] if submission is not None else None
     result = inference_runtime.call("appeal", original_text)
+    certification = verification.certify_assessment(
+        content_id, creator_id, original_text, result, "automatic_appeal", appeal_id,
+    )
+    if certification is not None:
+        result = {**result, "certification_status": "certified",
+                  "certificate_id": certification["credential"]["Certificate_id"],
+                  "credential": certification["credential"]}
     operations.before_persist()
     audit.log_appeal_result(content_id, creator_id, appeal_id, review_type=review_type, **result)
     return jsonify({

@@ -130,10 +130,13 @@ RATE_LIMIT_STORAGE = "memory://"
 
 # ─── Paths ───────────────────────────────────────────────────────────────────
 
+# Resolve logs relative to the application directory in IDE, CLI, and Docker runs.
+# Compose mounts the deployment's ./logs here so the same files are visible on the host.
 LOG_DIR = ROOT / "logs"
 AUDIT_LOG = LOG_DIR / "audit.jsonl"
 SUBMISSIONS_FILE = LOG_DIR / "submissions.jsonl"
-VERIFIED_HUMAN_CERTIFICATION_LOG = LOG_DIR / "verified_human_certification_log.jsonl"
+# Shared by automated human assessments and approved manual reviews.
+CERTIFICATION_LOG = LOG_DIR / "certification_log.jsonl"
 RESULTS_DIR = ROOT / "results"
 
 ## ─── Binoculars constants- Thresholds ─────────────────────────────────────────────────────────

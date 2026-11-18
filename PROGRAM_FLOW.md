@@ -1,14 +1,16 @@
 # Provenance Guard — Program Flow
 
-This document describes the implemented submission, scoring, automatic appeal,
-human-review, certificate verification, request deadlines, circuit breaker,
-operational metrics, and storage paths. The API is defined in
+This document follows the current application code, checked on **2026-11-18**:
+submission, existing-certificate lookup, scoring, automatic certification,
+appeals, manual review, certificate verification, request deadlines, circuit
+breaker, operational metrics, and storage. The API is defined in
 [app.py](app.py); the other application modules are called from those routes.
 A writing website, an API client, or `curl` can send requests to the same service.
 
-The settings below follow the current source code. Some earlier README examples
-describe different model configurations. Exact-text verification against a
-certificate's saved content hash is described at the end of this document.
+An exact match to already-certified text returns its saved certificate before
+scoring. Otherwise, a `human` assessment or an approved manual review creates a
+record in the same `logs/certification_log.jsonl` file. See
+[RUNNING.md](RUNNING.md) for local/IDE and Docker launch instructions.
 
 ## Application components
 
@@ -27,14 +29,14 @@ flowchart TD
     Appeals --> Detector
     Appeals --> Style
     Appeals --> Scoring
-    API --> Verification["verification.py: human review, certificates, and content hashes"]
+    API --> Verification["verification.py: hash lookup, automatic/manual certificates, review"]
     API --> Submissions["submissions.py: original text and decision"]
     API --> Audit["audit.py: event history"]
     Verification --> Submissions
     Verification --> Audit
     Submissions --> SubmissionFile["logs/submissions.jsonl"]
     Audit --> AuditFile["logs/audit.jsonl"]
-    Verification --> Certificates["logs/verified_human_certification_log.jsonl"]
+    Verification --> Certificates["logs/certification_log.jsonl"]
     Detector --> Measurements["model_metrics.py: tokens and forward-pass timing"]
     Binoculars --> Measurements
     Measurements --> Ops
@@ -52,25 +54,39 @@ network services for these modules.
 
 ## API routes and the functions they call
 
-The default Docker API address is `http://127.0.0.1:5001`; native Python defaults
-to `http://127.0.0.1:5000`. **There is no homepage at `/`**: opening either base
-address by itself returns 404. Open a complete GET URL in the browser:
+Both run modes expose the same routes. **There is no homepage at `/`**: opening
+the base address by itself returns 404. Use a complete GET URL in the browser.
+
+### Docker: API access
+
+The default host address is `http://127.0.0.1:5001`:
 
 - [Health and model readiness](http://127.0.0.1:5001/health)
 - [Statistics for the last 24 hours](http://127.0.0.1:5001/metrics?hours=24)
 - [Download the statistics as JSON](http://127.0.0.1:5001/metrics?hours=24&download=1)
 
+### Local Python/IDE: API access
+
+The default address is `http://127.0.0.1:5000`. Use
+[local health](http://127.0.0.1:5000/health) or
+[local metrics](http://127.0.0.1:5000/metrics?hours=24); the paths and responses
+are the same as in Docker.
+
+### Shared route handlers
+
 Use the paths as listed, without an extra trailing slash. POST routes need a
 POST request with a JSON body; opening them in a browser address bar sends GET
-and returns 405. Docker and native Python use separate records unless their
-storage has been explicitly configured to be shared.
+and returns 405. The current Compose configuration mounts the repository's
+`./logs` at `/app/logs`, so Docker and local/IDE runs use the same records.
+Run one service instance at a time against that directory. A deployment on
+another machine uses that machine's own `./logs` directory.
 
 | Route | Function in `app.py` | Work delegated to other modules |
 | --- | --- | --- |
 | `POST /ping` | `ping()` | Echoes a message and identifies the service. |
 | `GET /health` | `health()` | Checks inference readiness, optional-performer state, timeout/breaker settings, rate limits, and audit-entry count. |
-| `POST /submit` | `submit()` | Calls the detector, Binoculars, style analysis, scoring, submission storage, and audit logging. |
-| `POST /appeal`, default or `review_type="automatic"` | `appeal()` | Loads the original text, calls `appeals.reassess()`, and logs acceptance and reassessment. |
+| `POST /submit` | `submit()` | Calls `verification.find_certified_content()` first. On no match, runs scoring, saves the submission/decision, and calls `verification.certify_assessment()` for a `human` result. |
+| `POST /appeal`, default or `review_type="automatic"` | `appeal()` | Logs acceptance, loads the original text, runs `appeals.reassess()`, certifies a `human` majority through `verification.certify_assessment()`, and logs reassessment. |
 | `POST /appeal`, `review_type="human_verification"` | `appeal()` | Calls `verification.request_review()`. |
 | `GET /verification/review/<content_id>` | `get_verification_review()` | Calls `verification.review_details()`. |
 | `POST /verification/review` | `review_verification()` | Calls `verification.review_content()`. |
@@ -95,6 +111,8 @@ storage has been explicitly configured to be shared.
    detector; `binoculars_loaded` and `binoculars_startup_error` describe the
    optional performer. Primary-model startup failure prevents scoring. An
    optional-performer failure preserves the existing perplexity-only fallback.
+   HTTP 200 and `ok: true` alone do not mean the models are ready. Readiness also
+   does not guarantee admission: an open circuit or busy worker can reject scoring.
 5. Before readiness, a scoring request returns 503 `model_not_ready`. The HTTP
    service can still answer health, metrics, and certificate lookups. Docker's
    health check tests HTTP liveness; it does not require model readiness.
@@ -108,59 +126,57 @@ storage has been explicitly configured to be shared.
 `POST /submit` accepts a JSON object with `text` and an optional `creator_id`.
 An absent or invalid creator ID is stored as `unknown`.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client
-    participant API as app.py
-    participant Detector as detector.py
-    participant Binoculars as binoculars_signal.py
-    participant Style as stylometry.py
-    participant Scoring as scoring.py
-    participant Submissions as submissions.py
-    participant Audit as audit.py
+After basic input validation, `verification.find_certified_content()` checks
+the complete UTF-8 SHA-256 hash against saved certificates. An exact match with
+valid certification metadata returns HTTP 200, `status="already_certified"`,
+`already_certified=true`, `verified=true`, the message
+`"This content is already certified."`, and the existing `certificate_id`,
+`credential`, `content_id`, and `latest_certification_at`. This path requires no
+model inference and adds no submission, review, or audit record. Operational
+request logging and rate limiting still apply. An unmatched hash continues
+through scoring below.
+When that scoring returns `human`, `verification.certify_assessment()` writes
+an `automated_assessment` certificate into the shared `config.CERTIFICATION_LOG`
+and returns it with the scores. Automatic appeals with a `human` majority use
+the same writer and bind the certificate to the complete original text.
+Invalid matching approvals fail with 409; an unreadable or malformed certificate
+store fails with 503. Certificate validation is shared with `/verification/verify`.
+The lookup does not require a certificate ID from the caller. It compares the
+full hash, validates related certification records, and selects the latest
+matching certification by UTC timestamp, with file order breaking exact ties.
+Different whitespace, punctuation, or Unicode changes the hash and leads to
+normal scoring. The original creator and certification date remain unchanged.
 
-    Client->>API: POST /submit with text and creator_id
-    API->>API: Apply rate limits and validate input
-    alt Rate limit exceeded
-        API->>Audit: log_rejection(reason=rate_limited)
-        API-->>Client: HTTP 429
-    else Invalid JSON or missing/empty text
-        API->>Audit: log_rejection(reason=validation failure)
-        API-->>Client: HTTP 400
-    else Input passes initial validation
-        API->>Detector: model_signal(text)
-        Detector-->>API: Perplexity score, or exception
-        Note over API,Detector: Too few tokens: log rejection and return 400.<br/>Detector unavailable: log failure and re-raise.
-        opt Detector succeeded
-            API->>Binoculars: binoculars_signal(text)
-            Binoculars->>Detector: Reuse observer model and tokenizer
-            Binoculars-->>API: Binoculars score, or unavailable
-            API->>API: Select model score using word count and availability
-            API->>Style: style_signal(text)
-            Style-->>API: Style score, or TextTooShortError
-            alt Insufficient text for style analysis
-                API->>Audit: log_rejection(reason=insufficient_style_input)
-                API-->>Client: HTTP 400
-            else Style analysis succeeded
-                API->>Scoring: combine_signals(model_score, style_score)
-                Scoring-->>API: combined_score
-                API->>Scoring: score_to_label(combined_score)
-                Scoring-->>API: label and confidence
-                API->>API: Select label_text and generate content_id
-                API->>Submissions: save_submission(text and decision fields)
-                API->>Audit: log_decision(status=decided)
-                API-->>Client: HTTP 200 with content_id, scores, label, and label_text
-            end
-        end
-    end
+```mermaid
+flowchart TD
+    Request["POST /submit: text and optional creator_id"] --> Validate["Rate limits and basic input validation"]
+    Validate -->|Rejected| Invalid["HTTP 400 or 429"]
+    Validate -->|Accepted| Lookup["verification.find_certified_content: full UTF-8 SHA-256 lookup"]
+    Lookup -->|Store unavailable or corrupt| StoreError["HTTP 503: certificate_store_unavailable"]
+    Lookup -->|Matching certification unusable or conflicting| CertificateError["HTTP 409: certificate_unverifiable"]
+    Lookup -->|Valid exact match| Reuse["HTTP 200: already_certified, verified=true, saved credential and dates"]
+    Lookup -->|No match| Runtime["inference_runtime: deadline, circuit, readiness, single computation slot"]
+    Runtime -->|Admitted| Signals["CPU process: perplexity, Binoculars, then style"]
+    Runtime -->|Unavailable or timed out| RuntimeError["HTTP 503 or 504"]
+    Signals -->|Insufficient model or style input| Short["HTTP 400"]
+    Signals -->|Completed| Score["app.py and scoring.py: blend scores, choose label and new content_id"]
+    Score --> Save["Check deadline; save full submission and audit decision"]
+    Save --> Human{"Label is human?"}
+    Human -->|Yes| Certify["certify_assessment: append automated_assessment certificate"]
+    Certify --> CertificateLog["logs/certification_log.jsonl"]
+    Certify --> Certified["HTTP 200: scores plus certification_status, certificate_id and credential"]
+    Human -->|No: ai or unsure| Scored["HTTP 200: scores and label; no new certificate"]
 ```
 
-The sequence above shows logical module calls. Perplexity, Binoculars, and style
+The diagram shows normal outcomes and handled validation/operational failures.
+An unexpected failure can still return HTTP 500. Perplexity, Binoculars, and style
 calls cross `inference_runtime.call()` into the CPU process, all using the same
 request deadline. Rate-limit and validation failures are measured before any
 scoring starts. A timeout kills the compute process and returns 504 before saving
 a submission; an open circuit, busy process, or unready model returns 503.
+An existing-certificate match never enters that scoring circuit and remains
+available while models load or scoring is paused, subject to the shared deadline
+and operational logging. Invalid UTF-8 text fails hashing with HTTP 400.
 
 The current sequence runs model inference before checking the style minimums.
 Style analysis requires at least three sentences and 40 word tokens. Its
@@ -195,10 +211,17 @@ The blend above is performed directly in `app.py`; this path does not call
 | `0.45 < score < 0.60` | `unsure` |
 | `0.60 <= score <= 1.00` | `ai` |
 
-The response includes `http_status`, `content_id`, `guess`, `label`, `label_text`,
-`combined_score`, `confidence`, `model_score`, and `style_score`. Perplexity,
+The newly scored response includes `http_status`, `content_id`, `guess`, `label`,
+`label_text`, `combined_score`, `confidence`, `model_score`, and `style_score`. Perplexity,
 Binoculars, the inclusion flag, and word count are saved in the decision records
-but are currently commented out of the response payload.
+but are currently commented out of the response payload. A `human` result also
+includes `certification_status="certified"`, `certificate_id`, and `credential`.
+The `already_certified` response returns the saved certification without new
+score or classification fields.
+
+Submission, decision, and certificate writes happen in that order in the HTTP
+process. They are separate file appends, not one transaction across all files;
+a later persistence failure can leave earlier writes present.
 
 These scores are heuristics, not proof of authorship or calibrated probabilities.
 Rate limiting is enabled for `/submit`: nine requests per minute and 400 per day,
@@ -218,18 +241,40 @@ must provide an existing `content_id` and non-empty `reasoning`.
 4. `inference_runtime.call("appeal", original_text)` runs `appeals.reassess()` in
    the isolated process. It evaluates three variants: the original, the text
    without its first sentence, and the text without its last sentence.
-5. Each usable variant receives a perplexity score and a style score, combined
-   with weights of 60% model and 40% style. This appeal path does not call
-   Binoculars. It uses the same final label thresholds as submissions.
+5. Each variant is checked by style analysis first, then receives a perplexity
+   score if scorable. The blend is 60% model and 40% style. This appeal path does
+   not call Binoculars. It uses the same final label thresholds as submissions.
 6. A label with at least two votes wins. A three-way tie returns `unsure`.
    Missing text, insufficient text, or an unavailable detector produces an
    `unsure` vote for the affected variant, with a recorded reason.
-7. `operations.before_persist()` checks the remaining request budget before
+7. `verification.certify_assessment()` issues a certificate only for a `human`
+   result, after checking the deadline. It hashes the complete original text,
+   not a shortened appeal variant, and records `assessment_source="automatic_appeal"`
+   with the `appeal_id` as `assessment_id`. Its credential is added to the result.
+8. `operations.before_persist()` checks the remaining request budget before
    `audit.log_appeal_result()` appends the reassessment. The response includes
-   the label, message, votes, evaluations, and weights.
+   the label, message, votes, evaluations, and weights, plus certification fields
+   when a certificate was issued.
+
+```mermaid
+flowchart TD
+    Appeal["POST /appeal: content_id and reasoning"] --> Validate["Validate input and find original decision"]
+    Validate -->|Invalid input or unknown ID| Error["HTTP 400 or 404"]
+    Validate -->|Accepted| Accepted["Append appeal acceptance: under_review"]
+    Accepted --> Original["Retrieve full original submission"]
+    Original --> Runtime["Isolated process: reassess original and two shortened variants"]
+    Runtime -->|Unavailable or timed out| Interrupted["HTTP 503 or 504; acceptance remains recorded"]
+    Runtime -->|Completed| Vote["Majority of three labels; tie becomes unsure"]
+    Vote --> Human{"Human majority?"}
+    Human -->|Yes| Certificate["Certify full original text; append to certification_log.jsonl"]
+    Certificate --> Audit["Append reassessment audit event, including any credential"]
+    Human -->|No| Audit
+    Audit --> Response["HTTP 200: under_review, votes, evaluations and optional certificate"]
+```
 
 The original submission and decision remain unchanged. Automatic reassessment
-keeps the appeal `under_review`; it does not issue a human-review certificate.
+keeps the appeal `under_review`. A `human` majority now adds an
+`automated_assessment` certificate to the same store as manual reviews.
 Malformed appeal input returns HTTP 400, and an unknown submission returns 404.
 All three variants share the original request deadline. A timeout or inference
 rejection can leave the initial appeal-acceptance event in the audit log; it
@@ -237,10 +282,10 @@ does not append a completed reassessment from abandoned work.
 
 ## Human review and certificates: who uses verification.py?
 
-`app.py` imports [verification.py](verification.py) and calls it from five API
-paths: requesting human review, retrieving review details, recording the
-reviewer's decision, retrieving content status, and checking presented content
-against a certificate. It also converts
+`app.py` imports [verification.py](verification.py) for submission hash lookup,
+automatic certification from submissions and appeals, manual-review requests
+and decisions, review details, content status, and verification against a
+certificate. It also converts
 `VerificationError` exceptions into JSON responses with the supplied HTTP code.
 
 The diagram follows a valid new request and its first review decision. Error
@@ -262,8 +307,9 @@ sequenceDiagram
     Verification->>Audit: Find original decision and previous reviews
     Verification->>Submissions: for_decision(original)
     Submissions-->>Verification: Original submission and creator
-    Verification->>Certificates: Check for an existing certificate
-    Verification->>Verification: Reject already-certified or pending-review requests
+    Verification->>Certificates: Check for an existing manual draft_review certificate
+    Verification->>Verification: Reject manual approvals or pending reviews
+    Note over Verification: An automatic certificate<br/>allows a manual-review request
     Verification->>Audit: log_verification(event=human_verification_request)
     Verification-->>API: Request ID and under_review status
     API-->>Writer: HTTP 202
@@ -281,7 +327,7 @@ sequenceDiagram
     Verification->>Verification: Validate request, original text, and previous decision
     alt New decision is certified
         Verification->>Verification: Hash complete original UTF-8 text with SHA-256
-        Verification->>Verification: Certificate_id = final eight hash characters; capture UTC approval time
+        Verification->>Verification: Use final eight hash characters as ID and capture UTC approval time
         Verification->>Verification: Check request deadline before persistence
         Verification->>Certificates: Append approval record, flush, and fsync
         Verification->>Audit: Append human_verification_review with credential
@@ -306,7 +352,7 @@ submits `status="certified"` or `status="not_certified"`; `reviewer` defaults to
 `unspecified` and `review_notes` defaults to an empty string at the API boundary.
 The current review endpoint does not authenticate the reviewer.
 
-On approval, the credential contains `type="verified_human"`,
+On approval, the credential contains `type="content_certification"`,
 `method="draft_review"`, `Certificate_id=content_hash[-8:]` (eight lowercase hex
 characters, no prefix), and `verified_dt_time` in UTC. New credentials also contain `hash_algorithm="sha256"`
 and `content_hash`, computed from the complete original UTF-8 text. The same
@@ -326,15 +372,43 @@ Verification changes are serialized with thread and file locks. Repeating the
 same review decision returns the saved outcome and certificate; a conflicting
 decision returns HTTP 409. A repeated approval can also recover the audit entry
 if the certificate was saved but appending to the audit log failed. A declined
-item can receive a new review request; an already-certified item cannot.
+item can receive a new review request; an item already approved by a manual
+review cannot. An automatic certificate still permits a later manual review.
+
+Both certification methods use `schema_version=1` and a unique
+`certification_event_id`, which can identify a future NoSQL document. Automatic
+records have `event="automatic_certification"`, `assessment_source` (`submission`
+or `automatic_appeal`), `assessment_id`, and the assessment details. Manual
+records retain their reviewer and verification request fields. The credential's
+method distinguishes the two processes. New event IDs are `ce_` followed by the
+submission ID, automatic-appeal ID, or manual-review request ID. Repeating the
+same automatic assessment ID returns its saved certificate; a new qualifying
+appeal or approved manual review adds a certification activity.
+
+Existing review credentials of type `verified_human` remain readable. On first
+access, `verified_human_certification_log.jsonl` is renamed to
+`certification_log.jsonl` without rewriting its records. If both files already
+exist, the reader refuses to choose or overwrite either; submission lookup and
+certificate verification return 503 until the files are reconciled. Older
+certificates without usable hashes cannot verify, and historical `human`
+decisions are not retroactively certified.
 
 `content_status()` reads saved records without rescoring text. Its response
 includes `content_id`, `status`, and `credential`; if a human-review request
 exists, it also includes `verification_request_id` and `verification_status`.
+Workflow status and certification are separate: an automatically certified
+submission can still have `status="decided"`, and a certified automatic appeal
+still has `status="under_review"`. The credential is the last appended
+certificate for that content ID. A declined manual review does not delete an
+earlier automatic certificate; the application does not implement revocation.
 
 ## Records and their owners
 
 The data files contain one JSON object per line and are created on first write.
+`config.LOG_DIR` resolves to `logs/` beside `config.py`, independently of the
+process working directory. Both certification methods use
+`config.CERTIFICATION_LOG = LOG_DIR / "certification_log.jsonl"` and the same
+`_append_certificate()` writer, which flushes and fsyncs each new record.
 The three business files are joined by `content_id`; operational receipts and
 completions use `request_id` and include `content_id` when the response has one.
 
@@ -342,15 +416,17 @@ completions use `request_id` and include `content_id` when the response has one.
 | --- | --- | --- |
 | `logs/submissions.jsonl` | `submissions.save_submission()` | Complete original text, creator, timestamp, initial scores, label, and `decided` status. |
 | `logs/audit.jsonl` | Helpers in `audit.py` | Initial decisions, submission rejections, automatic appeals and reassessments, human-review requests, and review outcomes. New submission decisions omit the full text; human-review requests include their supporting evidence. |
-| `logs/verified_human_certification_log.jsonl` | `verification.review_content()` | Approved review records and credentials. Rejected reviews do not create certificate entries. |
+| `logs/certification_log.jsonl` | `verification.certify_assessment()`, `verification.review_content()` | Automatic `human` results and approved manual reviews with method, event ID, hash, and timestamps. Other labels and declined reviews do not create entries. |
 | `logs/operational_metrics.jsonl` | Request hooks in `operations.py` | UTC arrivals/completions, route, HTTP status, wall/CPU seconds, label/result, historical timeout settings, circuit state, and per-model tokens and timings. No full request text. |
 
 Reviews append new events rather than replacing the original submission.
 The current-status endpoint combines the relevant saved history and certificate.
 `GET /log` reads the audit file, not the submissions or certificate file directly.
 
-Submission rejections have explicit audit entries. Validation failures on other
-routes do not all append business audit events, but every Flask request is
+Rate-limit, initial JSON/text, and insufficient-scoring-input rejections in
+`/submit` have explicit audit entries. Certificate-store lookup errors do not
+append business audit events. Validation failures on other routes also do not
+all append such events, but every Flask request is
 instrumented by the operational hooks, including 400, 429, 500, and timeout
 responses. The operational file keeps performance measurements separate from
 the business audit trail.
@@ -372,7 +448,7 @@ These defaults are defined in [config.py](config.py):
 | `REQUEST_TIMEOUT_SECONDS` | `3` | Budget for one request, across all its computation stages. |
 | `INFERENCE_PROCESS_ENABLED` | `True` | Use an isolated process that can be stopped. Inline mode is for mock-based tests with the timeout disabled. |
 | `CIRCUIT_BREAKER_ENABLED` | `True` | Gate scoring after repeated timeouts. |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | Consecutive scoring timeouts required to open the circuit. |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | Scoring timeouts without an intervening successful admitted request required to open the circuit. |
 | `CIRCUIT_BREAKER_RECOVERY_SECONDS` | `30` | Cooldown before one recovery probe can enter. |
 | `OPERATIONAL_METRICS_ENABLED` | `True` | Persist request receipts and completions. |
 | `OPERATIONAL_LOG_FILENAME` | `operational_metrics.jsonl` | Performance/operations log under `LOG_DIR`. |
@@ -394,7 +470,8 @@ reports retain historical values even after configuration changes and restarts.
 3. All computation stages share the original deadline. On expiry, the worker is
    killed, partial measurements are retained, and the HTTP response is 504.
    Only model state is reloaded; an abandoned job is never replayed. Three
-   consecutive scoring timeouts open the breaker for 30 seconds by default.
+   scoring timeouts without an intervening successful admitted request open
+   the breaker for 30 seconds by default.
 4. Successful mutations check the deadline before persistence. Completion hooks
    record HTTP status, duration, CPU, result, and measurements, then release the
    inference slot. `X-Request-ID` links the response to its operational records.
@@ -418,11 +495,13 @@ request ending with HTTP below 500 resets the closed circuit's timeout count;
 the same result closes a half-open circuit. An unsuccessful probe starts a new
 cooldown. Validation and rate-limit failures before circuit admission do not
 change its state. The circuit does not gate health, metrics, or certificate
-lookups, and its in-memory state resets when the HTTP worker restarts.
+lookups, including `already_certified` submissions, and its in-memory state
+resets when the HTTP worker restarts. Non-timeout failures with HTTP 500 or above
+do not reset the timeout count of a closed circuit.
 
 | Operational outcome | HTTP status and JSON error | Effect |
 | --- | --- | --- |
-| Request deadline expires | 504 `request_timeout` | Includes the request ID and timeout value; active computation is stopped. |
+| Request deadline expires | 504 `request_timeout` | Includes request ID and timeout value; overdue scoring is stopped, while other handlers check deadlines cooperatively. |
 | Circuit open or another probe active | 503 `circuit_open` | Reject scoring with `Retry-After`. |
 | Computation slot already reserved | 503 `inference_busy` | Reject with `Retry-After`; scoring requests do not queue for that slot. |
 | Primary model not ready | 503 `model_not_ready` | Wait for readiness or investigate the startup error. |
@@ -436,11 +515,16 @@ forward pass with `model_metrics.forward_pass()`. Started/completed measurements
 stream to the parent collector using a unique `call_id`, so an update replaces
 the same call's initial record rather than counting it twice.
 
-| Model / stage | Normal submission | Automatic appeal |
+| Model / stage | Newly scored submission | Automatic appeal |
 | --- | --- | --- |
 | GPT-2 / `perplexity` | One forward pass | One pass per scorable variant, up to three |
 | GPT-2 / `binoculars_observer` | One additional forward pass | Not called |
 | DistilGPT-2 / `binoculars_performer` | One forward pass when available | Not called |
+
+These counts assume the default model pair and completed scoring. Existing
+certificate matches, certificate verification, and manual review run no models.
+An `already_certified` response therefore has no model-token measurements and
+does not add a fresh classification to the metrics report.
 
 `input_tokens` counts actual tokenized inputs after the 400-token limit for each
 started pass, including repeated uses of the same text. `completed_input_tokens`
@@ -498,7 +582,7 @@ sequenceDiagram
 | `requests_received`, `requests_completed`, `requests_without_completion` | Unique requests, not raw JSONL line counts. A missing completion can mean in-flight work or a process interruption. |
 | `requests_by_route` | Received requests grouped by HTTP method and route. |
 | `average_response_time_seconds`, `response_time_seconds` | Completed-request average, min, max, p50, and p95; `null` if no requests have completed. |
-| `classification_counts`, `classification_scope` | `human`, `ai`, and `unsure` from successful `POST /submit` responses only; the scope field states this counting rule. |
+| `classification_counts`, `classification_scope` | `human`, `ai`, and `unsure` from successful scored `POST /submit` responses. `already_certified` counts as a request and HTTP 200, but has no new classification. |
 | `appeal_classification_counts` | Automatic-appeal labels, counted separately from new submissions. |
 | `http_status_counts` | Completed responses, including 200, 400, 429, 503, 504, and other observed statuses. |
 | `timeout_count`, `timeout_configurations` | Timeouts and request counts grouped by the recorded timeout value and enabled flag. |
@@ -515,8 +599,17 @@ reconstructed later. There is no automatic rotation; sufficiently large files
 can exhaust the metrics query's time budget. File-read failures return 503
 `operational_log_unavailable`.
 
+### Docker: download metrics from the host
+
 ```bash
 curl -sS 'http://127.0.0.1:5001/metrics?hours=6&download=1' \
+  -o operational-metrics.json
+```
+
+### Local Python/IDE: download metrics
+
+```bash
+curl -sS 'http://127.0.0.1:5000/metrics?hours=6&download=1' \
   -o operational-metrics.json
 ```
 
@@ -528,7 +621,7 @@ flowchart LR
     Server --> API["app.py and imported application modules"]
     API --> Worker["Isolated CPU computation process"]
     API --> Logs["/app/logs"]
-    Logs --> Data["Persistent app-data volume"]
+    Logs --> Data["Host ./logs directory: shared with IDE/native runs"]
     Worker --> Cache["/models: Hugging Face cache"]
     Cache --> Models["Persistent model-cache volume"]
     Tools["Explicitly invoked Python helpers"] --> API
@@ -547,21 +640,27 @@ loopback; every API route uses that same mapping. One HTTP worker shares the
 in-memory rate limits and breaker, while its threads allow metadata requests
 to run during scoring.
 
-The `app-data` volume is mounted at `/app/logs`, so audit records, submissions,
-certificates, and operational metrics survive container replacement. The separate
+The deployment's `./logs` directory beside `compose.yaml` is mounted at `/app/logs`,
+so audit records, submissions, certificates, and operational metrics are visible
+in the host project and survive container replacement. Application paths remain
+relative to the directory containing `config.py`, matching IDE/native runs
+regardless of the process working directory. Run one service instance at a time
+against these shared logs. The separate
 `model-cache` volume is mounted at `/models`, and `app-results` is mounted at `/app/results`
-for helper outputs. None of these volumes is included when the image is
-exported. The Docker installation starts with its own records and does not
-automatically import the repository's existing logs.
+for helper outputs. Host logs and these volumes are not included when the image
+is exported. Docker uses the repository's existing logs directly.
 
 Gunicorn's console logs are available through `docker compose logs app`.
-The JSONL records are separate files inside `/app/logs`. All three mounted
-directories are writable by the non-root application user. Download/preparation
+The JSONL records are separate files inside `/app/logs`, also visible in the
+host's `logs/` directory. The host directory must be writable by the non-root
+application user; on Linux, its UID/GID is 10001. Download/preparation
 helpers should direct their outputs to `/app/results`; Beemo uses that directory
 as its working directory. See [RUNNING.md](RUNNING.md) for
 startup, model preparation, and copying records out of the container.
 
 ## Supporting tools and documentation
+
+### Docker: packaged helpers
 
 These files are included in the Docker image. Helpers run explicitly via
 `docker compose exec app python <script.py>`, rather than automatically by the
@@ -569,12 +668,12 @@ API. Markdown files remain documentation and evaluation inputs.
 
 | Files | Role |
 | --- | --- |
-| `run_eval.py`, `scenarios.py`, `eval_samples/samples.json` | Run the existing five acceptance criteria in three trials, capture responses, and write results. The runner also snapshots `criteria.md` and source files. |
+| `run_eval.py`, `scenarios.py`, `eval_samples/samples.json` | Historical five-criteria scoring evaluator. It captures responses and snapshots inputs/source, but assumes repeats return fresh scores; `already_certified` responses can invalidate its score-based checks. |
 | `run_attacks.py`, `run_paced_attacks.py` | Exercise the live API with attack inputs and paced requests. |
 | `calibrate.py`, `calibrate_combined.py`, `fit_perplexity.py` | Analyze model signals and candidate scoring settings using labeled samples. |
 | `download_hc3_samples.py`, `prepare_calibration_samples.py`, `beemo_file_download.py` | Download or prepare datasets and sample inputs. |
 | `test.py`, `test_*.py` | Check the environment and test application behavior. |
-| `test_operations.py`, `test_content_verification.py` | Cover operational counts, process cancellation, circuit recovery, token measurements, exact-content hashes, and certificate compatibility. |
+| `test_automatic_certification.py`, `test_submit_certification.py`, `test_content_verification.py`, `test_verification.py`, `test_operations.py` | Cover automatic/manual issuance, exact-hash reuse, migration, certificate validation, request budgets, circuit recovery, and metrics. See the isolated regression commands in `RUNNING.md`. |
 | `criteria.md`, `README.md`, `RUNNING.md`, `PROGRAM_FLOW.md` | Record acceptance targets, project evidence, operating instructions, and this flow. Flask does not use Markdown files to make scoring decisions. |
 
 Dependencies are installed from `requirements-docker.lock`, generated using
@@ -583,41 +682,79 @@ also includes `scikit-learn` for fitting and `datasets` for Beemo downloads.
 Source/docs and small fixtures are copied separately; existing logs, generated
 results, and large downloaded datasets are excluded. Helpers that call the
 running API from inside its container use `http://127.0.0.1:5000`.
+Attack runners retain responses, but their older label/score-based judgments
+need review when the API returns `already_certified`. See
+[current checks and legacy limitations](RUNNING.md#current-certification-and-operational-regression-checks).
 
 ## Verify content against a certificate
 
 `POST /verification/verify` accepts a JSON object containing `certificate_id`
 and `text`. `app.verify_certified_content()` validates the JSON object and calls
-`verification.verify_content()`. That function:
+`verification.verify_content()`. It accepts certificates issued by either
+automatic assessment or manual review. This endpoint differs from normal submission:
+
+| Input / outcome | `POST /submit` | `POST /verification/verify` |
+| --- | --- | --- |
+| Required fields | `text` | `certificate_id`, `text` |
+| Valid exact certified text | 200 `already_certified`, saved credential, no inference | 200 `verified: true`, `status: "verified"`, no inference |
+| Different text | Normal scoring; a new `human` result creates a certificate | 200 `verified: false`, `status: "content_mismatch"`; never scores |
+| No certificate record | Normal scoring | 404 `certificate_not_found`, including a missing or empty file |
+
+The verification function:
 
 1. Requires a non-empty certificate ID and text, then hashes the complete UTF-8
    text through `_content_hash()` without trimming, normalization, or model-token
    truncation. The same helper is used during certificate issuance.
-2. Reads the certificate file under the same lock used for review writes.
+2. Reads the shared certificate file under the same lock used for certification
+   and review writes. A legacy filename is migrated before reading.
    `_certificate_object()` rejects duplicate JSON field names, including nested
    credential fields, before any value can overwrite another. The lookup then
    finds the supplied ID in `credential.Certificate_id`.
-3. Validates the matching records' approval metadata, full SHA-256 hashes, and
-   certification dates. Eight-character IDs must equal the stored hash suffix.
-   Conflicting copies of one `verification_request_id` are rejected.
+3. Validates the matching records' automatic/manual certification metadata,
+   full SHA-256 hashes, and dates through `_validated_certifications()`.
+   Eight-character IDs must equal the stored hash suffix. `_activity_keys()`
+   checks for conflicting copies identified by `certification_event_id`,
+   `verification_request_id`, or `assessment_id`.
 4. Uses `hmac.compare_digest()` to find records whose full hash matches the
    presented text. Matching the short suffix alone never establishes verification.
 5. Selects the matching record with the latest UTC approval timestamp, using
    append order only for exact timestamp ties. `_certification_time()` validates
-   that its precise event timestamp and displayed UTC approval date agree.
+   that its precise event timestamp and displayed UTC certification date agree.
+
+```mermaid
+flowchart TD
+    Request["POST /verification/verify: certificate_id and text"] --> Input{"Valid JSON, fields and UTF-8 text?"}
+    Input -->|No| Bad["HTTP 400: bad_request"]
+    Input -->|Yes| Read["Hash full text; lock and read certification_log.jsonl"]
+    Read -->|Unreadable, corrupt or ambiguous store| Unavailable["HTTP 503: certificate_store_unavailable"]
+    Read -->|No record for ID| Unknown["HTTP 404: certificate_not_found"]
+    Read -->|ID found| Validate["Validate certification metadata, activity copies, hashes and timestamps"]
+    Validate -->|Unusable or conflicting| Conflict["HTTP 409: certificate_unverifiable"]
+    Validate -->|Valid| Compare{"Any complete SHA-256 hash matches?"}
+    Compare -->|Yes| Latest["Select latest matching timestamp; preserve original certification dates"]
+    Latest --> Verified["HTTP 200: verified=true, content_id, dates and certification_method"]
+    Compare -->|No| Mismatch["HTTP 200: verified=false, content_mismatch, null dates and method"]
+```
+
+The shared request hooks record this lookup and can still return operational
+errors such as 504 `request_timeout`; the diagram shows the verification-specific
+branches.
 
 The response is HTTP 200 with `verified: true` and `status: "verified"` for a
 match, or `verified: false` and `status: "content_mismatch"` for different text.
 Success includes the latest matching approval's `content_id`, `verified_dt_time`,
-and precise ISO 8601 UTC `latest_certification_at`, alongside the certificate ID
-and hash algorithm. Repeated certifications are valid history, not a duplicate-ID
+and precise ISO 8601 UTC `latest_certification_at`, alongside the certificate ID,
+hash algorithm, and `certification_method` (`automated_assessment` or `draft_review`).
+Repeated certifications are valid history, not a duplicate-ID
 error. If different full hashes share the short ID, each text resolves only to
-its own matching history. A mismatch returns null timestamps, and also a null
+its own matching history. A mismatch returns null timestamps and method, and also a null
 content ID when the suffix spans multiple full hashes. Invalid input returns
 400, an unknown ID returns 404, and unusable metadata or conflicting copies of
-one approval activity return 409. An unreadable, malformed or duplicate-field certificate file returns
-503. Certificate-validation errors include `verified: false`; shared operational
-errors such as a request timeout can instead carry the generic error payload.
+one certification activity return 409. An unreadable, malformed or duplicate-field
+certificate file returns 503. Certificate-validation errors include
+`verified: false`; shared operational errors instead carry the generic error
+payload. Examples are 504 `request_timeout` and 503 `operational_log_unavailable`
+when the initial operational receipt cannot be written; neither includes `verified`.
 
 This operation does not run inference or alter the submission, certificate,
 audit history, or content status. The saved hash remains usable after a process
@@ -629,17 +766,22 @@ status, and request timing without changing the certificate or business audit.
 
 The returned dates describe the latest successful certification of the presented
 text under the supplied ID. A lookup does not refresh them. Retrying approval of
-an already-approved submission also preserves its existing record; only a new
-approved submission adds a certification activity. Content-status and review
-detail endpoints retain their per-submission history.
+an already-approved manual review preserves its existing record. A new qualifying
+automatic appeal or a later approved manual review adds a certification activity
+even for the same original submission. Normal resubmission of certified text
+reuses its existing certificate. Content-status and review-detail endpoints
+retain their per-submission history.
 
 The check establishes a match with this deployment's stored certified version.
 It is not a public-key signature or an independent proof of human authorship;
-it relies on the existing reviewer process and the integrity of stored records.
+it relies on the recorded automatic assessment or manual review and the integrity
+of stored records. `certification_method` identifies which process was used.
 
-## New methods and changed entry points
+<a id="new-methods-and-changed-entry-points"></a>
 
-The following inventory maps the new runtime methods and updated application
+## Runtime methods and application entry points
+
+The following inventory maps the current runtime methods and application
 entry points to their roles. Hook names below `install()` are nested functions
 registered on the Flask application, not separate API endpoints.
 
@@ -663,26 +805,35 @@ registered on the Flask application, not separate API endpoints.
 | `model_metrics.py` | `forward_pass()`, `summarize()` | Measure model tokens and CPU/wall time, then aggregate by model name. |
 | `gunicorn_conf.py` | `post_worker_init()`, `worker_exit()` | Start and close computation with the HTTP worker lifecycle. |
 | `app.py` | `health()`, `main()` | Report readiness and operational settings; start computation for native serving. |
-| `app.py` | `submit()`, `appeal()` | Delegate computation through the runtime and check the deadline before saving successful outcomes. |
+| `app.py` | `submit()`, `appeal()` | Look up existing certificates before submission scoring, delegate computation, persist decisions, and certify new `human` assessments. |
 | `app.py` | `verify_certified_content()`, `operational_metrics()` | Serve certificate hash checks and windowed operational JSON reports. |
 | `detector.py`, `binoculars_signal.py` | `perplexity()`, `binoculars_score()` | Instrument existing forward passes without changing their scoring formula. |
-| `verification.py` | `_content_hash()`, `_certification_time()`, `verify_content()` | Calculate full UTF-8 SHA-256 hashes, validate approval timestamps, and return the latest matching certification for the supplied ID. |
-| `verification.py` | `_certificate_object()`, `_certificates()` | Read certificate records while rejecting duplicate field names at every JSON object level. |
+| `verification.py` | `_content_hash()`, `_credential()`, `_certification_time()` | Hash full UTF-8 text, build the method-specific credential, and validate certification timestamps. |
+| `verification.py` | `find_certified_content()`, `verify_content()` | Reuse an existing certificate by text hash, or verify text against a supplied ID, selecting the latest matching certification. |
+| `verification.py` | `certify_assessment()`, `_append_certificate()` | Persist each automatic `human` assessment once; share the append/flush/fsync boundary with manual approvals. |
+| `verification.py` | `_certificate_object()`, `_certificates()`, `_read_certificate_store()` | Migrate the old filename, reject duplicate JSON fields and malformed records, and read the shared store. |
+| `verification.py` | `_activity_keys()`, `_validated_certifications()` | Validate automatic/manual metadata, hashes and dates, and reject conflicting copies of a certification activity. |
 | `verification.py` | `request_review()`, `review_content()` | Guard review writes with the deadline and store hashes for new approvals while preserving repeat-approval behavior. |
+| `verification.py` | `review_details()`, `content_status()` | Join saved text, audit events and this submission's certificates without rescoring. |
 
 ## Capstone measurement helpers
+
+### Docker: isolated evaluation and measurement flows
 
 These host commands exercise the application in isolated Docker containers:
 
 | File | Flow and output |
 |---|---|
-| `certification_data_requests/run_tests.py` | `Sandbox` sends curl requests and retains isolated logs; `evaluate()` and `case_passed()` score five cases for each of criteria 6–10 across three runs. |
+| `certification_data_requests/run_tests.py` | `Sandbox` sends curl requests and retains isolated logs; `evaluate()` and `case_passed()` score five cases for each of criteria 6–10 across three runs. The runner uses the shared certification filename, permits automatic records alongside manual approvals, and checks repeated submissions reuse certificates. |
 | `certification_data_requests/check_duplicate_fields.py` | `main()` injects conflicting JSON fields into test records and saves three diagnostic trials with actual responses. |
-| `certification_data_requests/measure_cost.py` | `main()` warms the models, measures ten assessments and ten verifications, and records a rejected request; `operational_records()` reads real completion events, while `summarize()` averages complete CPU measurements. |
+| `certification_data_requests/measure_cost.py` | Historical workload: warm up and certify fixed text, then attempt ten assessments and ten verifications. With current hash reuse, the first measured assessment skips inference and fails the helper's expected-models check. |
 
-The cost helper joins saved inputs/responses with `operations.install.finish()`
-records and writes `measurements.jsonl`, compact `run_log.jsonl`, `summary.json`
-and runtime metadata. Setup and inter-request waits are excluded from its means.
+The cost helper must use independently scored, uncertified inputs before it can
+produce new fresh-scoring averages. Its historical completed runs joined saved
+inputs/responses with `operations.install.finish()` records and wrote
+`measurements.jsonl`, compact `run_log.jsonl`, `summary.json`, and runtime metadata.
+Setup and inter-request waits were excluded from those means. Current performance
+records remain available from `/metrics` and `logs/operational_metrics.jsonl`.
 [Commands](certification_data_requests/COMMANDS.md) and
 [submission status](SUBMISSION_CHECK.md) accompany the saved evidence.
 

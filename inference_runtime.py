@@ -1,4 +1,22 @@
-"""One persistent, killable CPU inference process; it never writes application records."""
+"""Run scoring in one persistent CPU process with deadlines and circuit control.
+
+Execution flow:
+    1. Native startup or Gunicorn calls ``engine.start()``. The spawned worker
+       loads models and reports readiness; loading is outside request budgets.
+    2. A scoring route calls ``call(job, text)`` with its operations.RequestState.
+       The first call checks the circuit and reserves the single computation slot.
+    3. ``engine.run()`` sends the job through a local pipe and collects streamed
+       model measurements until the worker returns a result or error.
+    4. Later stages of the same request reuse its reservation and original
+       deadline. Expiry while waiting kills the worker and starts model reload.
+    5. The HTTP route saves business records. The operations completion hook
+       updates the circuit and calls ``release()`` even after a failed request.
+
+The worker performs computation only; it never writes submissions, certificates,
+or audit records. Health/metrics handlers and existing-certificate lookups do not
+call this scoring path. Standalone calls without request state execute inline;
+inline HTTP execution is reserved for tests with request timeouts disabled.
+"""
 
 import atexit
 import multiprocessing
@@ -10,13 +28,25 @@ import model_metrics
 
 
 class InferenceRejected(RuntimeError):
+    """Describe unavailable scoring; operations.install() maps this to HTTP 503."""
+
     def __init__(self, code, message, retry_after=0):
+        """Keep the JSON error code, readable reason, and optional retry seconds."""
         super().__init__(message)
         self.code, self.retry_after = code, retry_after
 
 
 class CircuitBreaker:
+    """Track scoring timeouts and allow one recovery probe after a cooldown.
+
+    State is shared by threads in one HTTP worker and resets on restart. Closed
+    admits requests; open rejects them until cooldown expires; half_open admits
+    only the probe already selected by enter(). Computation-slot reservation is
+    separate and can reject a request even after circuit admission.
+    """
+
     def __init__(self, clock=time.monotonic):
+        """Start closed, using an injectable monotonic clock for recovery timing."""
         self.clock = clock
         self.lock = threading.Lock()
         self.state = "closed"
@@ -24,6 +54,7 @@ class CircuitBreaker:
         self.open_until = 0.0
 
     def enter(self):
+        """Return (allowed, retry_seconds), admitting at most one half-open probe."""
         with self.lock:
             if self.state == "open":
                 remaining = self.open_until - self.clock()
@@ -34,6 +65,14 @@ class CircuitBreaker:
             return (False, 1) if self.state == "half_open" else (True, 0)
 
     def finish(self, timed_out, success, threshold, recovery):
+        """Update the circuit once an admitted HTTP request has finished.
+
+        operations passes success=True for HTTP statuses below 500. Timeouts
+        accumulate until the threshold opens the circuit; a successful request
+        resets a closed circuit's count. A half-open probe closes the circuit on
+        success or starts a new cooldown on failure. Other closed-state failures
+        do not clear the timeout count.
+        """
         with self.lock:
             if timed_out:
                 self.failures += 1
@@ -48,12 +87,19 @@ class CircuitBreaker:
                 self.failures = 0
 
     def snapshot(self):
+        """Return the current state, timeout count, and remaining open cooldown."""
         with self.lock:
             return {"state": self.state, "consecutive_timeouts": self.failures,
                     "retry_after_seconds": max(0.0, self.open_until - self.clock()) if self.state == "open" else 0.0}
 
 
 def _execute(job, text):
+    """Dispatch one named computation job without persistence or HTTP handling.
+
+    Supported jobs are perplexity, binoculars, style, and appeal. The worker uses
+    this dispatcher after warm-up; standalone/mock-based calls also use it inline.
+    Unknown job names raise ValueError, and scoring errors propagate to the caller.
+    """
     if job == "perplexity":
         import detector
         return detector.model_signal(text)
@@ -70,6 +116,16 @@ def _execute(job, text):
 
 
 def _worker(connection, settings):
+    """Load models in the child process, then serve jobs from the parent's pipe.
+
+    The protocol sends ready/startup_error once at initialization. Each received
+    (job, text) produces zero or more model_call messages followed by result/error
+    with measured process CPU seconds. Application errors are sent as a type name
+    and message; the parent reconstructs supported exceptions. Losing the parent
+    connection ends the loop and closes the child endpoint.
+    """
+    # Spawn starts a fresh interpreter. Apply the parent's selected scoring
+    # settings before importing modules that read configuration at import time.
     for name, value in settings.items():
         setattr(config, name, value)
     try:
@@ -92,9 +148,13 @@ def _worker(connection, settings):
     try:
         while True:
             job, text = connection.recv()
+            # Stream call starts/completions immediately so the parent retains
+            # partial measurements if this process must be killed mid-job.
             collector, token = model_metrics.begin(
                 lambda record: connection.send({"type": "model_call", "record": record})
             )
+            # Process CPU includes inference threads, but excludes startup and
+            # time waiting above for the next job. It can exceed elapsed time.
             cpu_started = time.process_time()
             try:
                 if job == "binoculars" and binoculars_error:
@@ -113,7 +173,17 @@ def _worker(connection, settings):
 
 
 class InferenceProcess:
+    """Own the child process, its pipe, readiness state, and request reservation.
+
+    guard protects process/pipe operations during startup, health inspection,
+    and a running job. reservation is held across every stage of one HTTP
+    request, preventing other scoring requests from waiting behind its work.
+    Health snapshots use a nonblocking guard acquisition so scoring cannot make
+    health checks wait for a model result.
+    """
+
     def __init__(self, target=_worker):
+        """Initialize a stopped engine; tests may supply a lightweight worker target."""
         self.target = target
         self.guard = threading.Lock()
         self.reservation = threading.Lock()
@@ -127,6 +197,11 @@ class InferenceProcess:
         self.closed = False
 
     def _start_locked(self):
+        """Spawn the worker when eligible; the caller must hold guard.
+
+        A live process, permanent closure, or startup-retry cooldown prevents a
+        new spawn. Only selected scoring settings are copied into the child.
+        """
         if self.closed or self.process is not None or time.monotonic() < self.retry_at:
             return
         context = multiprocessing.get_context("spawn")
@@ -143,6 +218,11 @@ class InferenceProcess:
         self.binoculars_ready, self.binoculars_error = False, None
 
     def _stop_locked(self):
+        """Kill the current worker and clear its pipe/readiness while holding guard.
+
+        This stops the current process without permanently closing the engine;
+        close() sets the separate closed flag when replacement is no longer wanted.
+        """
         if self.process is not None:
             if self.process.is_alive():
                 self.process.kill()
@@ -155,6 +235,12 @@ class InferenceProcess:
         self.binoculars_ready = False
 
     def _refresh_locked(self):
+        """Consume startup status or detect worker death while holding guard.
+
+        Startup failures discard the process and set a retry cooldown. Optional
+        performer failure is reported separately and leaves the detector usable.
+        A later start(), snapshot(), or run() can initiate an eligible replacement.
+        """
         if self.process is not None and self.ready and not self.process.is_alive():
             self.error = "Inference process exited; waiting for model reload."
             self._stop_locked()
@@ -173,6 +259,7 @@ class InferenceProcess:
                 self.retry_at = time.monotonic() + config.CIRCUIT_BREAKER_RECOVERY_SECONDS
 
     def start(self):
+        """Begin startup and refresh available status without waiting for readiness."""
         if not config.INFERENCE_PROCESS_ENABLED:
             return
         with self.guard:
@@ -180,11 +267,18 @@ class InferenceProcess:
             self._refresh_locked()
 
     def close(self):
+        """Permanently close this engine and stop its child during server shutdown."""
         with self.guard:
             self.closed = True
             self._stop_locked()
 
     def snapshot(self):
+        """Return readiness/startup errors without blocking behind an active job.
+
+        When the guard is available, refresh state and start an eligible worker.
+        Otherwise return the last known flags. Ready means models are loaded, not
+        that the computation slot is free or the circuit will admit a request.
+        """
         if self.guard.acquire(blocking=False):
             try:
                 self._refresh_locked()
@@ -196,6 +290,17 @@ class InferenceProcess:
                 "binoculars_ready": self.binoculars_ready, "binoculars_error": self.binoculars_error}
 
     def run(self, job, text, state):
+        """Execute one job using the caller's remaining shared request budget.
+
+        The caller has already reserved the computation slot. An unready worker
+        raises InferenceRejected immediately instead of waiting for model loading.
+        Streamed measurements update state.collector; the final message adds CPU
+        time and returns a value or raises the corresponding scoring exception.
+
+        Expiry while waiting marks CPU incomplete, kills the process, schedules
+        model reload, and raises DeadlineExceeded. A lost pipe produces
+        InferenceRejected instead. No failed or abandoned job is replayed.
+        """
         import detector
         import operations
         with self.guard:
@@ -206,6 +311,8 @@ class InferenceProcess:
             try:
                 self.connection.send((job, text))
                 while True:
+                    # Recompute remaining time after every streamed message.
+                    # Starting another stage must not reset the request budget.
                     remaining = state.deadline - time.perf_counter() if state.timeout_enabled else None
                     if remaining is not None and remaining <= 0:
                         state.timed_out, state.cpu_complete = True, False
@@ -221,8 +328,12 @@ class InferenceProcess:
                         continue
                     state.inference_cpu_seconds += message["cpu_seconds"]
                     if message["type"] == "result":
+                        # A result can arrive at the deadline boundary; reject
+                        # it here before the route can persist a successful score.
                         operations.check_deadline()
                         return message["value"]
+                    # Preserve errors that app.py handles explicitly for 400s
+                    # and optional-model fallback; unexpected errors become 500s.
                     if message["error_type"] == "TextTooShortError":
                         if job == "style":
                             import stylometry
@@ -237,17 +348,32 @@ class InferenceProcess:
                 raise InferenceRejected("inference_unavailable", "The inference process exited; retry after model reload.", 1) from exc
 
 
+# One pair is shared by threads in this HTTP worker. Gunicorn/native startup
+# starts the engine; explicit worker shutdown and interpreter exit both close it.
 breaker = CircuitBreaker()
 engine = InferenceProcess()
 atexit.register(engine.close)
 
 
 def call(job, text):
+    """Admit a scoring stage, reserve its request's slot, and execute the job.
+
+    With active request state, check the deadline first and enter the circuit
+    once for the whole request. Reserve the engine without waiting, then reuse
+    that reservation for later stages until the operations completion hook
+    releases it. Rejections carry the reason used in the HTTP 503 response.
+
+    Without request state, execute inline for standalone callers. Disabling
+    process isolation inside a request is allowed only with timeouts disabled;
+    that test mode marks total CPU incomplete because no child reports CPU time.
+    """
     import operations
     state = operations.current()
     operations.check_deadline()
     if state is None:
         return _execute(job, text)
+    # Calls for perplexity, Binoculars, and style belong to one admitted request,
+    # so neither the breaker count nor reservation is acquired anew per stage.
     if state.breaker_enabled and not state.breaker_admitted:
         allowed, retry_after = breaker.enter()
         if not allowed:
@@ -267,6 +393,11 @@ def call(job, text):
 
 
 def release(state):
+    """Release a request's computation reservation once during response finalization.
+
+    Requests that never reserved inference, including certificate lookups, are
+    harmless no-ops here. The completion hook calls this even if logging fails.
+    """
     if getattr(state, "inference_reserved", False):
         state.inference_reserved = False
         engine.reservation.release()

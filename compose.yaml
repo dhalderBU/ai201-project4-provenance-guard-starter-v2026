@@ -13,11 +13,11 @@ services:
     ports:
       - "127.0.0.1:${PROVENANCE_PORT:-5001}:5000"
     volumes:
-      - app-data:/app/logs
+      # Keep logs beside this deployment; Docker creates the folder if absent.
+      - ./logs:/app/logs
       - app-results:/app/results
       - model-cache:/models
 
 volumes:
-  app-data:
   app-results:
   model-cache:

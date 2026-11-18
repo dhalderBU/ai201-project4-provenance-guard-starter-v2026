@@ -1,4 +1,21 @@
-"""Request deadlines, persistent operational records, and time-window statistics."""
+"""Track Flask requests, enforce shared deadlines, and summarize operational logs.
+
+Request flow:
+    1. ``app.py`` calls ``install(app)`` before installing its rate limiter.
+    2. The first request hook creates a RequestState and records the arrival.
+    3. Routes validate input and perform lookups or call ``inference_runtime``.
+       All stages share the original deadline; scoring streams measurements back.
+    4. Successful submission/certification writes call ``before_persist()``.
+    5. Response/teardown hooks finalize measurements, update an admitted request's
+       circuit state, release its inference slot, and clear request context.
+    6. ``GET /metrics`` calls ``summarize()`` to aggregate saved request events.
+
+The operational JSONL file is configured by LOG_DIR and OPERATIONAL_LOG_FILENAME.
+It stores metadata and measurements, not full submitted text. Certificate-only
+requests still pass through these hooks even though they never run inference.
+The deadline measures processing inside Flask, excluding network/server queuing;
+CPU totals combine handler-thread CPU and reported inference-process CPU.
+"""
 
 from collections import Counter
 from contextvars import ContextVar
@@ -13,19 +30,30 @@ import uuid
 import config
 import model_metrics
 
+# Context-local state keeps concurrent Flask requests' deadlines and collectors
+# separate. The file lock below additionally serializes appends within a process.
 _active = ContextVar("operation", default=None)
 _file_lock = threading.Lock()
 
 
 class DeadlineExceeded(RuntimeError):
+    """Signal budget expiry; the installed Flask handler converts it to HTTP 504."""
+
     pass
 
 
 def current():
+    """Return this execution context's RequestState, or None outside a request."""
     return _active.get()
 
 
 def check_deadline():
+    """Mark and raise DeadlineExceeded when an enabled request budget has expired.
+
+    Calls outside an instrumented request, or with timeouts disabled, do nothing.
+    Non-inference handlers use these cooperative checks; inference_runtime also
+    stops the worker process when a scoring job exceeds the remaining budget.
+    """
     state = current()
     if state and state.timeout_enabled and time.perf_counter() >= state.deadline:
         state.timed_out = True
@@ -33,16 +61,31 @@ def check_deadline():
 
 
 def before_persist():
+    """Check the deadline and mark that this request is beginning persistence.
+
+    This does not write or commit data itself. Once the marker is set, the
+    response hook preserves the route's outcome instead of substituting a late
+    timeout response after a write may have happened. Later explicit deadline
+    checks can still raise; there is no transaction or rollback across files.
+    """
     check_deadline()
     if current():
         current().persistence_started = True
 
 
 def log_path():
+    """Return the configured operational JSONL path under the deployment's logs."""
     return config.LOG_DIR / config.OPERATIONAL_LOG_FILENAME
 
 
 def append(record):
+    """Append one JSON event under thread/process locks, creating missing paths.
+
+    The write is flushed before unlocking. Serialization and filesystem errors
+    propagate to the caller so arrival and completion hooks can handle failures
+    differently: a failed arrival blocks work, while a failed completion cannot
+    undo a result already saved by the route.
+    """
     path = log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, ensure_ascii=True, allow_nan=False) + "\n"
@@ -56,7 +99,15 @@ def append(record):
 
 
 class RequestState:
+    """Hold one request's clocks, settings, inference ownership, and measurements.
+
+    Configuration is captured at arrival for historical reporting. The inference
+    runtime updates admission, CPU, and token state; finish() consumes that state
+    once and resets the context tokens created here.
+    """
+
     def __init__(self, method, path, route):
+        """Start clocks, snapshot configuration, and bind a new metrics collector."""
         self.started = time.perf_counter()
         self.cpu_started = time.thread_time()
         self.received_at = datetime.now(timezone.utc).isoformat()
@@ -81,6 +132,7 @@ class RequestState:
         self.state_token = _active.set(self)
 
     def common(self):
+        """Return metadata shared by this request's receipt and completion events."""
         return {"schema_version": 1, "request_id": self.request_id,
                 "received_at": self.received_at, "method": self.method,
                 "path": self.path, "route": self.route,
@@ -91,12 +143,19 @@ class RequestState:
 
 
 def install(app):
-    """Install before the rate limiter so rejected requests are measured too."""
+    """Register request hooks and JSON error handlers on a Flask application.
+
+    Install once, before Flask-Limiter, so rejected submissions are measured too.
+    begin_request() owns arrival recording; finish_request() handles normal and
+    handled-error responses; finish_failed_request() covers teardown when normal
+    finalization was skipped. Both completion paths share the idempotent finish().
+    """
     from flask import jsonify, request
     import inference_runtime
 
     @app.before_request
     def begin_request():
+        """Create request state and record arrival before route work can begin."""
         state = RequestState(request.method, request.path,
                              request.url_rule.rule if request.url_rule else "unmatched")
         if state.recording:
@@ -108,6 +167,7 @@ def install(app):
 
     @app.errorhandler(DeadlineExceeded)
     def timeout_response(exc):
+        """Return HTTP 504 with the request ID and the budget that was exceeded."""
         state = current()
         if state:
             state.timed_out = True
@@ -117,6 +177,7 @@ def install(app):
 
     @app.errorhandler(inference_runtime.InferenceRejected)
     def unavailable_response(exc):
+        """Return HTTP 503 and, when supplied, a whole-second Retry-After header."""
         response = jsonify(error=exc.code, message=str(exc), request_id=current().request_id)
         response.status_code = 503
         if exc.retry_after:
@@ -124,11 +185,20 @@ def install(app):
         return response
 
     def finish(state, status, body):
+        """Finalize one request and return whether completion logging succeeded.
+
+        Only requests admitted to scoring update the circuit. Incomplete model
+        calls make total CPU unknown rather than reporting a misleading zero.
+        Cleanup runs even if writing the completion fails. Already-finalized
+        requests and requests with logging disabled return True without writing.
+        """
         if state.finalized:
             return True
         state.finalized = True
         elapsed = time.perf_counter() - state.started
         calls = list(state.collector.calls.values())
+        # Streamed call-start events can survive a worker crash or timeout even
+        # when the corresponding completion and CPU total never reach Flask.
         for call in calls:
             if call["status"] == "running":
                 call["status"] = "aborted" if state.timed_out else "incomplete"
@@ -138,6 +208,8 @@ def install(app):
                                  state.breaker_threshold, state.breaker_recovery)
         body = body if isinstance(body, dict) else {}
         handler_cpu = time.thread_time() - state.cpu_started
+        # Timing ends before this completion append and before the response is
+        # transmitted. Keep unknown CPU totals null and preserve partial calls.
         record = {
             **state.common(), "event": "request_completed",
             "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -164,6 +236,8 @@ def install(app):
             written = False
             app.logger.exception("Cannot write operational completion for %s", state.request_id)
         finally:
+            # Request ownership spans all scoring stages and ends here, including
+            # on errors. Releasing it prevents a failed log write blocking work.
             inference_runtime.release(state)
             model_metrics.end(state.metrics_token)
             _active.reset(state.state_token)
@@ -171,11 +245,12 @@ def install(app):
 
     @app.after_request
     def finish_request(response):
+        """Apply the final deadline check, add tracing headers, and record outcome."""
         state = current()
         if state is None:
             return response
-        # Read-only handlers also check the shared budget. Never rewrite a
-        # successful mutation as a failure after its records have been committed.
+        # Read-only handlers also check the shared budget. Once persistence has
+        # started, keep the route's outcome because records may already be saved.
         if not state.persistence_started and response.status_code < 500:
             try:
                 check_deadline()
@@ -188,12 +263,14 @@ def install(app):
 
     @app.teardown_request
     def finish_failed_request(exc):
+        """Record a fallback 500 and release state if response finalization failed."""
         state = current()
         if state is not None and not state.finalized:
             finish(state, 500, {"error": type(exc).__name__ if exc else "unfinished_request"})
 
 
 def _timestamp(value):
+    """Parse an ISO 8601 timestamp as UTC, rejecting timestamps without an offset."""
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         raise ValueError("Timestamp must have an offset")
@@ -201,6 +278,10 @@ def _timestamp(value):
 
 
 def _percentile(values, fraction):
+    """Interpolate a percentile of sorted values, or return None for an empty list.
+
+    The caller supplies fraction between zero and one; summarize() uses p50/p95.
+    """
     if not values:
         return None
     position = (len(values) - 1) * fraction
@@ -210,6 +291,26 @@ def _percentile(values, fraction):
 
 
 def summarize(hours, now=None):
+    """Aggregate events by request ID within a UTC arrival-time window.
+
+    Args:
+        hours: Finite positive window length, no greater than METRICS_MAX_HOURS.
+        now: Optional timezone-aware endpoint for the window; defaults to UTC now.
+
+    Returns:
+        A JSON-compatible dictionary of request counts, completed-request timing,
+        labels, statuses, timeout settings, model measurements, and known CPU time.
+        Missing logs produce an empty report; malformed records are counted and
+        skipped. A completion can establish a request even if its receipt is absent.
+
+    Raises:
+        ValueError: The requested window is outside the supported range.
+        OSError: An existing log cannot be read.
+        DeadlineExceeded: A cooperative scan check finds the request out of time.
+
+    This reads the log without modifying it. During a logged /metrics request,
+    its own receipt is visible but its completion is not written until afterward.
+    """
     if not math.isfinite(hours) or not 0 < hours <= config.METRICS_MAX_HOURS:
         raise ValueError(f"hours must be greater than 0 and at most {config.METRICS_MAX_HOURS:g}.")
     now = now or datetime.now(timezone.utc)
@@ -223,6 +324,8 @@ def summarize(hours, now=None):
         handle = None
     if handle:
         with handle:
+            # Filter on arrival time, then retain one receipt/completion per ID.
+            # Check periodically so a growing log still respects the API budget.
             for index, line in enumerate(handle):
                 if index % 100 == 0:
                     check_deadline()
@@ -253,6 +356,8 @@ def summarize(hours, now=None):
                 except (ValueError, TypeError, KeyError, AttributeError):
                     malformed += 1
 
+    # Count every observed request, but compute timing/status/CPU totals only for
+    # completed requests. Unfinished receipts remain visible as a separate count.
     statuses = Counter({str(code): 0 for code in (200, 400, 429, 503, 504)})
     labels = Counter({label: 0 for label in ("human", "ai", "unsure")})
     appeal_labels = labels.copy()
@@ -277,6 +382,8 @@ def summarize(hours, now=None):
         bucket["timeouts"] += is_timeout
         circuit_rejections += bool(result.get("circuit_rejected"))
         label = result.get("label")
+        # Existing-certificate responses have no new label. Appeal votes are
+        # reported separately so they do not inflate submission classifications.
         if result["http_status"] == 200 and label in labels:
             if result["method"] == "POST" and result["route"] == "/submit":
                 labels[label] += 1

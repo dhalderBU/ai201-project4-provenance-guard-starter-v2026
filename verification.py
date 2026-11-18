@@ -1,4 +1,4 @@
-"""Manual review, persisted certificates, and exact-text certificate verification."""
+"""Shared automatic/manual certifications and exact-text certificate verification."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -19,6 +19,7 @@ import operations
 _lock = threading.Lock()
 REQUEST_EVENT = "human_verification_request"
 REVIEW_EVENT = "human_verification_review"
+ASSESSMENT_EVENT = "automatic_certification"
 
 
 class VerificationError(ValueError):
@@ -51,7 +52,13 @@ def _certificate_object(pairs):
 
 
 def _certificates():
-    path = config.VERIFIED_HUMAN_CERTIFICATION_LOG
+    path = config.CERTIFICATION_LOG
+    legacy = path.with_name("verified_human_certification_log.jsonl")
+    if legacy.exists():
+        if path.exists():
+            raise ValueError("Both legacy and current certification logs exist; merge them before continuing.")
+        # Called under the verification lock. Preserve historical records byte for byte.
+        legacy.rename(path)
     if not path.exists():
         return []
     # Fail on a damaged certificate log instead of overlooking existing IDs.
@@ -73,6 +80,65 @@ def _content_hash(text):
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
     except UnicodeEncodeError as exc:
         raise VerificationError("text must contain valid UTF-8 characters.") from exc
+
+
+def _credential(text, now, method):
+    digest = _content_hash(text)
+    return {
+        "type": "content_certification", "method": method,
+        "Certificate_id": digest[-8:],
+        "verified_dt_time": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "hash_algorithm": "sha256", "content_hash": digest,
+    }
+
+
+def _append_certificate(record):
+    """One persistence boundary for a future document-store implementation."""
+    path = config.CERTIFICATION_LOG
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def certify_assessment(content_id, creator_id, text, assessment, source, assessment_id):
+    """Persist each human assessment once, without claiming a manual review."""
+    if assessment.get("label") != "human":
+        return None
+    if source not in ("submission", "automatic_appeal"):
+        raise VerificationError("Unknown certification assessment source.")
+    if not isinstance(text, str) or not text.strip():
+        raise VerificationError("The original submitted text is unavailable for certification.",
+                                409, "original_text_unavailable")
+    digest = _content_hash(text)
+    with _locked():
+        certificates = _read_certificate_store()
+        event_id = "ce_" + assessment_id
+        existing = [record for record in certificates
+                    if record.get("certification_event_id") == event_id]
+        if existing:
+            _validated_certifications(existing)
+            record = existing[-1]
+            if (record["content_id"] != content_id
+                    or record["credential"]["content_hash"] != digest
+                    or record.get("assessment_source") != source):
+                raise VerificationError("The assessment has conflicting certification records.",
+                                        409, "certificate_unverifiable")
+            return record
+        now = datetime.now(timezone.utc)
+        record = {
+            "schema_version": 1, "certification_event_id": event_id,
+            "timestamp": now.isoformat(timespec="microseconds"),
+            "content_id": content_id, "creator_id": creator_id,
+            "event": ASSESSMENT_EVENT, "status": "certified",
+            "assessment_source": source, "assessment_id": assessment_id,
+            "assessment": dict(assessment),
+            "credential": _credential(text, now, "automated_assessment"),
+        }
+        operations.before_persist()
+        _append_certificate(record)
+        return record
 
 
 def _certification_time(record):
@@ -147,7 +213,9 @@ def request_review(content_id, reasoning, additional_text):
         original = _original(item_entries)
         submission = _submission(original)
         certificates = _certificates()
-        if any(entry.get("content_id") == content_id for entry in certificates):
+        if any(entry.get("content_id") == content_id
+               and entry.get("credential", {}).get("method") == "draft_review"
+               for entry in certificates):
             raise VerificationError("This item already has a verified-human certificate.", 409, "already_verified")
         for entry in item_entries:
             if entry.get("event") == REQUEST_EVENT and _review(
@@ -206,16 +274,10 @@ def review_content(content_id, status, reviewer, notes):
         now = datetime.now(timezone.utc)
         credential = None
         if status == "certified":
-            content_hash = _content_hash(text)
-            credential = {
-                "type": "verified_human",
-                "method": "draft_review",
-                "Certificate_id": content_hash[-8:],
-                "verified_dt_time": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                "hash_algorithm": "sha256",
-                "content_hash": content_hash,
-            }
+            credential = _credential(text, now, "draft_review")
         review = {
+            "schema_version": 1,
+            "certification_event_id": "ce_" + request_id,
             # Preserve subsecond order when identical text is approved twice.
             "timestamp": now.isoformat(timespec="microseconds"),
             "content_id": request["content_id"],
@@ -231,12 +293,7 @@ def review_content(content_id, status, reviewer, notes):
         }
         operations.before_persist()
         if credential is not None:
-            path = config.VERIFIED_HUMAN_CERTIFICATION_LOG
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(review, ensure_ascii=False) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
+            _append_certificate(review)
         audit.log_verification(**review)
         return review
 
@@ -263,6 +320,114 @@ def content_status(content_id):
         return result
 
 
+def _read_certificate_store():
+    """Read usable JSON objects, preserving the store's fail-closed behavior."""
+    try:
+        certificates = _certificates()
+    except (OSError, ValueError) as exc:
+        raise VerificationError("Certificate records could not be read.",
+                                503, "certificate_store_unavailable") from exc
+    if any(not isinstance(record, dict)
+           or not isinstance(record.get("credential"), dict) for record in certificates):
+        raise VerificationError("Certificate records could not be read.",
+                                503, "certificate_store_unavailable")
+    return certificates
+
+
+def _validated_certifications(records):
+    """Validate approval metadata and conflicting copies before using any match."""
+    candidates, seen_events = [], {}
+    for index, record in enumerate(records):
+        operations.check_deadline()
+        credential = record["credential"]
+        certificate_id = credential.get("Certificate_id")
+        stored_hash = credential.get("content_hash")
+        request_id = record.get("verification_request_id")
+        event_id = record.get("certification_event_id")
+        assessment = record.get("assessment")
+        method = credential.get("method")
+        manual = (method == "draft_review" and record.get("review_decision") == "certified"
+                  and isinstance(request_id, str) and bool(request_id))
+        automatic = (method == "automated_assessment"
+                     and credential.get("type") == "content_certification"
+                     and record.get("event") == ASSESSMENT_EVENT
+                     and record.get("assessment_source") in ("submission", "automatic_appeal")
+                     and isinstance(record.get("assessment_id"), str) and bool(record["assessment_id"])
+                     and event_id == "ce_" + record["assessment_id"]
+                     and isinstance(assessment, dict) and assessment.get("label") == "human")
+        short_id = (isinstance(certificate_id, str) and len(certificate_id) == 8
+                    and all(c in "0123456789abcdef" for c in certificate_id))
+        if (record.get("status") != "certified"
+                or not (manual or automatic)
+                or not isinstance(record.get("content_id"), str) or not record["content_id"]
+                or not isinstance(certificate_id, str) or not certificate_id.strip()
+                or credential.get("type") not in ("content_certification", "verified_human")
+                or (credential.get("type") == "content_certification"
+                    and (record.get("schema_version") != 1
+                         or not isinstance(event_id, str) or not event_id))
+                or credential.get("hash_algorithm") != "sha256"
+                or not isinstance(stored_hash, str) or len(stored_hash) != 64
+                or any(char not in "0123456789abcdef" for char in stored_hash)
+                or (short_id and stored_hash[-8:] != certificate_id)):
+            raise VerificationError("This certificate has no usable SHA-256 certification record.",
+                                    409, "certificate_unverifiable")
+        for key in _activity_keys(record):
+            if key in seen_events and seen_events[key] != record:
+                raise VerificationError("The certification activity has conflicting records.",
+                                        409, "certificate_unverifiable")
+            seen_events[key] = record
+        candidates.append((_certification_time(record), index, record))
+    return candidates
+
+
+def _activity_keys(record):
+    """Identify both new certification events and historical review activities."""
+    keys = set()
+    for field in ("certification_event_id", "verification_request_id", "assessment_id"):
+        value = record.get(field)
+        if isinstance(value, str) and value:
+            keys.add((field, value))
+    return keys
+
+
+def find_certified_content(text):
+    """Find an existing approval by full text hash, without requiring its ID."""
+    presented_hash = _content_hash(text)
+    with _locked():
+        certificates = _read_certificate_store()
+        matches = []
+        for record in certificates:
+            operations.check_deadline()
+            if record["credential"].get("content_hash") == presented_hash:
+                matches.append(record)
+        if not matches:
+            return None
+
+        # Check related copies as well, so a damaged or conflicting approval
+        # cannot be hidden by filtering on its one remaining correct hash.
+        certificate_ids = {record["credential"]["Certificate_id"] for record in matches
+                           if isinstance(record["credential"].get("Certificate_id"), str)}
+        activity_keys = set().union(*(_activity_keys(record) for record in matches))
+        related = []
+        for record in certificates:
+            operations.check_deadline()
+            certificate_id = record["credential"].get("Certificate_id")
+            if (record["credential"].get("content_hash") == presented_hash
+                    or (isinstance(certificate_id, str) and certificate_id in certificate_ids)
+                    or _activity_keys(record) & activity_keys):
+                related.append(record)
+        candidates = _validated_certifications(related)
+        matching = [candidate for candidate in candidates if hmac.compare_digest(
+            presented_hash, candidate[2]["credential"]["content_hash"])]
+        moment, _, record = max(matching, key=lambda candidate: candidate[:2])
+        return {
+            "content_id": record["content_id"],
+            "certificate_id": record["credential"]["Certificate_id"],
+            "credential": record["credential"],
+            "latest_certification_at": moment.isoformat(),
+        }
+
+
 def verify_content(certificate_id, text):
     """Verify the full hash and return the latest matching certification activity.
 
@@ -278,43 +443,13 @@ def verify_content(certificate_id, text):
     presented_hash = _content_hash(text)
 
     with _locked():
-        try:
-            certificates = _certificates()
-        except (OSError, ValueError) as exc:
-            raise VerificationError("Certificate records could not be read.",
-                                    503, "certificate_store_unavailable") from exc
-        if any(not isinstance(record, dict)
-               or not isinstance(record.get("credential"), dict) for record in certificates):
-            raise VerificationError("Certificate records could not be read.",
-                                    503, "certificate_store_unavailable")
+        certificates = _read_certificate_store()
         matches = [record for record in certificates
                    if record["credential"].get("Certificate_id") == certificate_id]
         if not matches:
             raise VerificationError("No certificate exists for that certificate_id.",
                                     404, "certificate_not_found")
-        short_id = len(certificate_id) == 8 and all(c in "0123456789abcdef" for c in certificate_id)
-        candidates, seen_events = [], {}
-        for index, record in enumerate(matches):
-            operations.check_deadline()
-            credential = record["credential"]
-            stored_hash = credential.get("content_hash")
-            request_id = record.get("verification_request_id")
-            if (record.get("status") != "certified"
-                    or record.get("review_decision") != "certified"
-                    or not isinstance(record.get("content_id"), str) or not record["content_id"]
-                    or not isinstance(request_id, str) or not request_id
-                    or credential.get("type") != "verified_human"
-                    or credential.get("hash_algorithm") != "sha256"
-                    or not isinstance(stored_hash, str) or len(stored_hash) != 64
-                    or any(char not in "0123456789abcdef" for char in stored_hash)
-                    or (short_id and stored_hash[-8:] != certificate_id)):
-                raise VerificationError("This certificate has no usable SHA-256 certification record.",
-                                        409, "certificate_unverifiable")
-            if request_id in seen_events and seen_events[request_id] != record:
-                raise VerificationError("The certification activity has conflicting records.",
-                                        409, "certificate_unverifiable")
-            seen_events[request_id] = record
-            candidates.append((_certification_time(record), index, record))
+        candidates = _validated_certifications(matches)
 
         matching = [candidate for candidate in candidates if hmac.compare_digest(
             presented_hash, candidate[2]["credential"]["content_hash"])]
@@ -332,4 +467,5 @@ def verify_content(certificate_id, text):
             "hash_algorithm": "sha256",
             "verified_dt_time": record["credential"]["verified_dt_time"] if verified else None,
             "latest_certification_at": latest[0].isoformat() if verified else None,
+            "certification_method": record["credential"].get("method") if verified else None,
         }

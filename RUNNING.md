@@ -1005,25 +1005,182 @@ container's source revision. The source of each fixed sample is documented in
 
 ## Capstone integrity criteria and cost measurement
 
+### Execute criteria tests from any system
+
+Manual API requests can be sent from **any system with curl, the required JSON
+data files, and network access to the API**. These examples use Bash/Zsh syntax;
+use a compatible shell, such as WSL on Windows.
+
+| Execution mode | Files needed on the machine running the command | Tools and connectivity |
+| --- | --- | --- |
+| Manual request to an existing deployment | The selected JSON request files from `certification_data_requests/`, preserving their relative paths. Review templates need the actual `content_id`. | curl and a reachable API address, directly or through an SSH tunnel. No local models or Docker are needed on the client. |
+| Complete 75-case acceptance run | The full current project checkout, including application Python files, `Dockerfile`, `.dockerignore`, `requirements-docker.lock`, `criteria.md`, and the complete `certification_data_requests/` input/runner folder. | Bash, Python 3.9+, curl, and a local Docker Engine or Docker Desktop with Linux containers. |
+
+The complete suite can run on another suitably configured machine with these
+files and tools. It creates its own containers and uses their temporary
+`127.0.0.1` ports. The runner must execute where those published ports are
+reachable locally; it has no `--url` option to target an existing remote API.
+For remote Docker, run it on the Docker host through SSH. ARM64 Docker is the
+validated runtime; other architectures require a compatible build.
+
+**Keep the input files on the machine running curl or the runner.** curl reads
+`--data-binary @file` locally and sends its JSON contents. The API does not need
+the file itself inside its container. No manual `docker cp` step is required.
+The Docker build also packages the request folder, but the host runner reads
+the host copies. Existing generated results are not required inputs.
+
+### Required criteria files and test data
+
+All paths below are relative to the project root. Copy the complete input pack
+with its directory structure when setting up another machine.
+
+| Files | Contents and use |
+| --- | --- |
+| `criteria.md` | Human-readable targets and reasons for criteria 6–10. |
+| `certification_data_requests/manifest.json`, `fixtures.json` | Three-run/five-case plan, original-text references, full SHA-256 hashes, certificate IDs, and word substitutions. |
+| `certification_data_requests/fixtures/*.submit.json` | Five UTF-8 JSON bodies with `text` and `creator_id`: ordinary prose, Unicode, LF line breaks, surrounding spaces, and text beyond 400 tokens. |
+| `certification_data_requests/request_human_review.template.json`, `approve_review.template.json` | Review evidence and approval templates; the runner fills in returned content IDs. |
+| `certification_data_requests/criterion_06` through `criterion_10` | Criterion definitions, five case descriptions each, expected statuses/fields, and ready-to-send verification request JSON. |
+| `criterion_08/requests/` within that pack | Fixed word, punctuation, trailing-space, and letter-case alterations; all must fail exact-content verification. |
+| `criterion_09/requests/`, `criterion_09/legacy_records.json`, `criterion_09/case_05.json` | Wrong pairings, unknown/invalid IDs, legacy records without hashes, and a malformed-store test applied only to the runner's isolated logs. |
+| `criterion_10/requests/` within that pack | Original and trailing-space variants checked after container replacement. |
+| `certification_data_requests/run_tests.py`, `commands.sh` | Python evaluator and Bash entry point. |
+
+The input files are JSON; request/response histories and application logs are
+JSONL, one object per line. Keep original fixtures unchanged: their full hashes
+are validated. The long-text edit is also checked against GPT-2's token boundary
+inside the container. Synthetic review approvals exercise integrity behavior.
+
 ### Docker: certification-integrity criteria
 
-From the project root, run all five integrity criteria, five cases each across
-three trials, in isolated CPU Docker containers:
+The launcher is [commands.sh](commands.sh) in the project root, beside this
+guide. It locates the project directory and forwards options to the criteria
+runner. You can also invoke it by its absolute path from another folder.
+
+Run from the **CodePathWeek7 project root** with Docker running, using host
+Python 3.9+ and curl. A host virtual environment is not required. First validate
+the JSON files, hashes, and case counts without containers or API requests:
 
 ```bash
-bash certification_data_requests/commands.sh --validate-only
-bash certification_data_requests/commands.sh
+bash commands.sh --validate-only
 ```
 
-The wrapper needs host `python3`, Docker, and curl. `--validate-only` checks the
-fixture pack without containers or API requests. The full command is a separate,
-long-running evaluation; it does not require the host virtual environment.
-The runner builds the test image, reuses cached models and saves actual requests,
-responses, logs and a Markdown results table in a new directory. It uses separate
-test volumes; the running application's records are not its test store.
-See [the request pack](certification_data_requests/README.md) and
-[copyable commands](certification_data_requests/COMMANDS.md) for prerequisites,
-manual curl examples and supplemental regressions.
+Then execute all five criteria, five cases each across three runs (**75 case
+executions**), and generate the report:
+
+```bash
+bash commands.sh
+```
+
+The runner builds `provenance-guard:certification-tests` from the current checkout,
+checks image/source identity, and uses real CPU models with application defaults.
+Each criterion/run gets its own container and log volume. Requests go to those
+temporary containers, not the normal application on port 5001. Evidence is
+exported before the temporary containers and log volumes are removed.
+
+A running Compose application's model-cache volume is reused read-only. If none
+is available, the runner downloads models into a temporary cache and needs
+internet access. Allow several minutes, including rate-limit waits in criterion
+7. For a slower initial download, add `--readiness-timeout 600`; this changes
+startup waiting, not the application's request budget. Keep source and inputs
+unchanged throughout all three runs.
+
+**Current definition mismatch:** Criterion 7's prose/case descriptions still
+specify two separate approved submissions, while the current runner checks
+existing-certificate reuse and two verification lookups. Criterion 10's prose
+still requires exactly five certificates, while the runner preserves all
+automatic and manual records. Reconcile those descriptions with the intended
+targets before treating a new report as proof of those targets. JSON validation
+does not detect this difference. See the detailed
+[Milestone 5 file and change inventory](README.md#application-and-runner-changes-used-by-the-next-run).
+
+#### Docker: run the complete suite on a remote host
+
+Place the current checkout and data files on the server first, then replace the
+SSH login and checkout path in this command:
+
+```bash
+ssh user@server 'cd /path/to/CodePathWeek7 && bash commands.sh'
+```
+
+Both the runner and Docker operate on that server; results remain there.
+
+### Manual requests from any system with API access
+
+Run from the client folder containing `certification_data_requests/`. Set the
+URL reachable from that client. The default local Docker address is shown;
+native Python uses port 5000. A remote deployment needs its reachable API URL
+or the SSH tunnel below. `127.0.0.1` refers to the machine running curl.
+
+```bash
+PROVENANCE_URL=http://127.0.0.1:5001
+curl -sS "$PROVENANCE_URL/health"
+```
+
+Wait for `inference_ready: true` before sending new text for scoring:
+
+```bash
+curl -sS -i -X POST "$PROVENANCE_URL/submit" \
+  -H 'Content-Type: application/json' \
+  --data-binary @certification_data_requests/fixtures/ordinary.submit.json
+```
+
+Once that exact fixture has a certificate in the target deployment, verify it:
+
+```bash
+curl -sS -i -X POST "$PROVENANCE_URL/verification/verify" \
+  -H 'Content-Type: application/json' \
+  --data-binary @certification_data_requests/criterion_07/requests/case_01_unchanged.json
+```
+
+This file supplies the fixed original text and its expected certificate ID. If
+submission did not issue a certificate, complete the
+[manual-review workflow](#shared-api-request-and-approve-a-manual-review) first.
+A target store without that certificate returns 404. Manual calls use that
+deployment's real records and do not generate the full criteria report. Use
+the isolated runner for all 75 cases, including corruption and replacement tests.
+
+#### Docker: reach a remote deployment through SSH
+
+Compose binds the published port to the Docker host's loopback address by
+default. Keep this tunnel running in one client terminal, replacing the SSH login:
+
+```bash
+ssh -N -L 5501:127.0.0.1:5001 user@server
+```
+
+In a second client terminal containing the request files, select the tunnel:
+
+```bash
+PROVENANCE_URL=http://127.0.0.1:5501
+```
+
+Run the health, submission, and verification curl commands above using that
+value. The JSON files remain on the client. Choose another local tunnel port
+if 5501 is occupied.
+
+### Where criteria results are saved
+
+The automated command prints a new host-side directory under
+`certification_data_requests/results/<UTC_timestamp>_<run_id>/`:
+
+| Output | Evidence |
+| --- | --- |
+| `report.md` | Criterion/target/Run 1/Run 2/Run 3/verdict table and failed checks. |
+| `results.json` | Per-case expected/actual values and pass/fail checks. |
+| `metadata.json`, `build.log`, `inputs/` | Image/source hashes, execution settings, build output, and frozen copies of inputs/source. |
+| `run_1/criterion_06/` through `run_3/criterion_10/` | Request/response JSON, `responses.jsonl`, recorded curl commands, and container identities. |
+| Each criterion's `snapshots/` and `final/logs/` | Submission/audit/certification records and final operational metrics; criterion 10 also retains replacement evidence. |
+
+A case passes only if every check passes. A criterion needs 5/5 in all three
+runs for `PASSED`; failed checks produce `MISSED`, and unfinished runs remain
+`INCOMPLETE`/`NOT RUN`. A fully passing run exits with status 0; failed acceptance
+checks exit with status 1. Existing results are preserved. Recorded curl commands
+refer to temporary ports and IDs; use `commands.sh` for a new complete run.
+Manual curl responses appear in the terminal unless redirected to a file.
+
+See the matching [README execution guide](README.md#execute-criteria-tests-from-any-system)
+and [request pack](certification_data_requests/README.md) for further context.
 
 ### Docker: historical cost-measurement limitation
 
