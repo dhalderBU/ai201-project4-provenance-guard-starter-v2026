@@ -1919,3 +1919,301 @@ The rejected request returned `400`, `verified: false`, `bad_request`.
 criteria.md#capstone-additional-5-criteria defines criteria 6–10, their targets, reasons and fixed fixtures. Each has five cases per run; every required check must pass for its case to pass.
 
 <!-- Unit9 Milestone 4 end -->
+
+<!-- Unit9 Milestone 5 start -->
+
+**Run Log and Verdicts**
+
+### Test inputs and deliberately changed data
+
+The Milestone 5 acceptance run uses the five certified-content integrity
+criteria **6–10**, with **five cases per criterion and three runs**: 25 cases
+per run, **75 case executions**. Setup and additional requests inside a case
+do not increase that count. Inputs are UTF-8 JSON files; saved request/response
+histories and application logs use JSONL, with one JSON object per line.
+
+| File or folder | Data and purpose |
+| --- | --- |
+| [criteria.md](criteria.md#capstone-additional-5-criteria) | Human-readable targets and reasons for criteria 6–10. |
+| [manifest.json](certification_data_requests/manifest.json) | Selects the five criteria, three runs, and five cases per criterion. |
+| [fixtures.json](certification_data_requests/fixtures.json) | Lists the five originals, expected full SHA-256 hashes, certificate-ID suffixes, and word substitutions. |
+| `certification_data_requests/fixtures/*.submit.json` | Original submission bodies containing `text` and `creator_id`: `ordinary`, `unicode`, `line_breaks`, `spaces`, and `long_text`. They cover ordinary prose, non-ASCII characters, LF newlines, surrounding whitespace, and text beyond the 400-token model limit. |
+| `certification_data_requests/request_human_review.template.json`, `approve_review.template.json` | Synthetic review evidence and approval details. The runner fills in each actual `content_id` returned by the API. |
+| `certification_data_requests/criterion_06` through `criterion_10` | Each contains `criterion.json` and five `case_XX.json` files describing cases, expected statuses/fields, and request-file references. |
+| `certification_data_requests/run_tests.py`, `commands.sh` | Python evaluator and Bash entry point. `evaluate()` performs checks; `case_passed()` requires every check to pass; `write_report()` generates verdicts. |
+
+The original fixture files remain fixed during testing. Deliberately changed
+or invalid data is already prepared in these files:
+
+| Data files | Change and expected behavior |
+| --- | --- |
+| `criterion_07/requests/case_XX_unchanged.json` | Unchanged text and its certificate ID; each verification request runs twice and must return `200`, `verified: true`. The current runner also resubmits the original fixture to check `already_certified`. |
+| `criterion_08/requests/case_XX_word.json`, `_punctuation.json`, `_space.json`, `_case.json` | Four independent edits per original: one word, punctuation, trailing space, or letter case. All 20 checks per run must return `200`, `verified: false`, `content_mismatch`. The long-text word edit is beyond token 400. |
+| `criterion_09/requests/*.json` | Wrong text/ID pairings, unknown IDs, legacy IDs, missing/empty IDs, missing text, and a valid request against corrupt storage. These cover the expected `200` mismatch, `404`, `409`, `400`, and `503` responses. |
+| `criterion_09/legacy_records.json` and `criterion_09/case_05.json` | Two historical certificate records without hashes, and the literal malformed line `{broken`. The runner appends these only to its isolated test store; corruption runs last. |
+| `criterion_10/requests/case_XX_original.json`, `case_XX_one_character_edit.json` | Exact originals and trailing-space variants, checked after replacing the container while retaining its test log volume. Originals verify; changed text does not. |
+
+All paths in the second table are under `certification_data_requests/`.
+`--data-binary @file` preserves the request data. The fixture hash validator
+detects changes to the original texts; GPT-2 token-boundary validation runs
+inside the test container. These synthetic approvals test integrity behavior,
+not proof of authorship.
+
+### Application and runner changes used by the next run
+
+| Changed file | Effect on current tests and saved data |
+| --- | --- |
+| `app.py`, `verification.py` | Exact certified text reuses its saved certificate. New `human` submissions/automatic appeals and approved manual reviews write to the same certification store. |
+| `config.py` | Uses `CERTIFICATION_LOG = LOG_DIR / "certification_log.jsonl"`; new test snapshots use that filename. |
+| `certification_data_requests/run_tests.py` | Reads the shared filename, checks five manual approvals while allowing additional automatic records, checks repeat-submission reuse in criterion 7, and preserves the full certification history/count in criterion 10. |
+| `compose.yaml` | The normal application bind-mounts host `./logs`. The acceptance runner separately uses temporary Docker log volumes, preserving the normal application's records. |
+| `operations.py`, `inference_runtime.py`, `model_metrics.py` | Recent edits add docstrings and flow comments. Executable logic is unchanged, but source hashes change and the test image must be rebuilt. |
+| `test_automatic_certification.py`, `test_submit_certification.py`, `test_content_verification.py`, `test_verification.py` | Separate regression tests cover automatic/manual issuance, hash reuse, migration, timestamp selection, and conflicting records. They are not additional acceptance cases. |
+
+**Definition check before interpreting a new report:** `criteria.md` and the
+`checks` descriptions in `criterion_07/case_XX.json` still describe two separate
+approved submissions. The current evaluator instead tests reuse of the existing
+certificate and two verification lookups. Criterion 10's descriptions still
+require exactly five certificates, while the evaluator preserves all automatic
+and manual certification records. The JSON `checks` strings are descriptive;
+`evaluate()` implements these storage/workflow assertions. The criteria and case
+descriptions need to be reconciled with the intended current targets before a
+new report can be presented as satisfying those targets. `--validate-only`
+checks JSON, hashes, and counts; it does not detect this semantic difference.
+
+### Execute criteria tests from any system
+
+Manual API requests can be sent from **any system with curl, the required JSON
+data files, and network access to the API**. The examples below use Bash/Zsh
+syntax; use a compatible shell, such as WSL on Windows.
+
+| Execution mode | Files needed on the machine running the command | Tools and connectivity |
+| --- | --- | --- |
+| Manual request to an existing deployment | The selected JSON request files from `certification_data_requests/`, preserving their relative paths. Review templates need the actual `content_id`. | curl and a reachable API address, directly or through an SSH tunnel. No local models or Docker are needed on the client. |
+| Complete 75-case acceptance run | The full current project checkout: application Python files, `Dockerfile`, `.dockerignore`, dependency lock, `criteria.md`, and the complete `certification_data_requests/` input/runner folder listed above. | Bash, Python 3.9+, curl, and a local Docker Engine or Docker Desktop with Linux containers. |
+
+**Keep the data files where you execute curl or the runner.** curl reads
+`--data-binary @file` locally and sends the JSON body to the API. You do not need
+to copy these request files manually into the application container. The full
+runner uses its host-side files even though the Docker build also packages the
+request folder. Existing generated result directories are not required inputs.
+
+The complete suite can run on another suitably configured machine with the
+checkout and tools above. It creates its own containers and expects their
+published ports to be reachable at `127.0.0.1` on that machine. It has no `--url`
+option for targeting an existing remote API. For remote Docker, execute the
+runner on that host through SSH. ARM64 Docker is the validated runtime; other
+architectures require a compatible build. See the same instructions in
+[RUNNING.md](RUNNING.md#execute-criteria-tests-from-any-system).
+
+### Docker: commands to collect new Milestone 5 results
+
+The launcher is [commands.sh](commands.sh) in the project root, beside this
+README. It locates the project directory and forwards options to the criteria
+runner. You can also invoke it by its absolute path from another folder.
+
+Run from the **CodePathWeek7 project root**, with Docker running and host
+`python3` (3.9 or newer) and `curl` available. A host virtual environment is not
+required for this runner.
+
+First validate the request pack without containers or API calls:
+
+```bash
+bash commands.sh --validate-only
+```
+
+Then execute the current runner and generate a new report:
+
+```bash
+bash commands.sh
+```
+
+The second command builds `provenance-guard:certification-tests` from the current
+workspace, checks the image's Python source hashes, and runs the real CPU models
+with application defaults. It creates a fresh container and log volume for each
+criterion/run, sends requests using curl on temporary host ports, and exports
+evidence before removing those temporary containers and volumes. It does not
+send acceptance requests to the normal application on port 5001.
+
+The runner automatically reuses a running Compose application's model-cache
+volume read-only. Otherwise, it creates a temporary cache and downloads models,
+which requires internet access. Allow several minutes: criterion 7 includes five
+setup submissions plus five repeat submissions and pauses for the nine-per-minute
+limit. For a slower initial model download, use
+`bash commands.sh --readiness-timeout 600`; this
+changes startup waiting, not the three-second application request budget.
+
+Keep source and input files unchanged throughout all three runs. A successful
+case requires every check to pass, and a criterion requires **5/5 in all three
+runs**. The runner records failures without retrying failed requests. Its verdicts
+are `PASSED`, `MISSED`, or `INCOMPLETE`; unfinished runs show `NOT RUN`. A fully
+passing run exits with status 0; failed acceptance checks exit with status 1.
+Those verdicts describe the implemented checks, subject to the definition
+difference noted above.
+
+#### Docker: run the complete suite on a remote host
+
+Place the current checkout and data files on that host first. Replace
+`user@server` and `/path/to/CodePathWeek7` with your SSH login and checkout path:
+
+```bash
+ssh user@server 'cd /path/to/CodePathWeek7 && bash commands.sh'
+```
+
+Content of command.sh:
+
+```text
+#!/usr/bin/env bash
+# Run from CodePathWeek7, the parent of certification_data_requests.
+# API requests are executed with curl by the Python runner.
+set -euo pipefail
+python3 certification_data_requests/run_tests.py "$@"
+```
+
+The runner and Docker operate on the server; generated results stay in that
+server's `certification_data_requests/results/` directory.
+
+### Manual requests from any system with API access
+
+Run from the local folder containing `certification_data_requests/`. Select the
+address reachable from this client: the default local Docker address is shown
+below; native Python uses port 5000. For another deployment, set its reachable
+API URL instead. `127.0.0.1` always refers to the machine running curl.
+
+```bash
+PROVENANCE_URL=http://127.0.0.1:5001
+curl -sS "$PROVENANCE_URL/health"
+```
+
+Wait for `inference_ready: true` before submitting new text for scoring:
+
+```bash
+curl -sS -i -X POST "$PROVENANCE_URL/submit" \
+  -H 'Content-Type: application/json' \
+  --data-binary @certification_data_requests/fixtures/ordinary.submit.json
+```
+
+This sends one submission to the selected deployment and uses its real records.
+Once that exact fixture has a certificate in that deployment, verify it using:
+
+```bash
+curl -sS -i -X POST "$PROVENANCE_URL/verification/verify" \
+  -H 'Content-Type: application/json' \
+  --data-binary @certification_data_requests/criterion_07/requests/case_01_unchanged.json
+```
+
+The verification file contains the fixed original text and its expected certificate ID. If submission did not issue a certificate, complete the manual-review workflow - RUNNING.md#shared-api-request-and-approve-a-manual-review first. Sending this file to a store without that certificate returns 404. 
+
+#### Docker: reach a remote deployment through SSH
+
+Compose publishes port 5001 on the Docker host's loopback address by default. To reach it from another system, keep this tunnel running in one client terminal (replace `user@server` with the deployment host):
+
+```bash
+ssh -N -L 5501:127.0.0.1:5001 user@server
+```
+
+In a second client terminal containing the JSON data files, select the tunnel:
+
+```bash
+PROVENANCE_URL=http://127.0.0.1:5501
+```
+
+### Generated results and the files to inspect
+
+The command prints the exact report path under a new directory:
+`certification_data_requests/results/<UTC_timestamp>_<run_id>/`.
+
+| Output | What to use it for |
+| --- | --- |
+| `report.md` | Generated criterion/target/Run 1/Run 2/Run 3/verdict table and failed checks. |
+| `results.json` | Every case's expected and actual values and individual pass/fail results. |
+| `metadata.json`, `build.log` | Image identity, source hashes, execution settings, token-boundary evidence, and Docker build output. |
+| `inputs/` | Frozen copies of criteria, JSON request data, runner, and relevant application/build files. |
+| `run_1/criterion_06/` through `run_3/criterion_10/` | Resolved `requests/*.json`, raw `responses/*.json`, `responses.jsonl`, recorded `curl_commands.sh`, and container identities. |
+| Each criterion's `snapshots/` and `final/logs/` | Submission, audit, and `certification_log.jsonl` evidence; final logs also retain `operational_metrics.jsonl`. Criterion 10 includes before/after replacement evidence. |
+
+
+### Historical results and saved excerpts
+
+The following results are from the earlier application and criterion definitions. They retain the original certificate filename and response schema. They are not results of a new run against the current workspace.
+
+Three separate runs used unchanged inputs and code, with fresh isolated records for each criterion/run and real CPU models. They ran on; saved log timestamps use UTC. 
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 6. Correct hash storage | Independently hash five originals; 5/5 certificate/audit fingerprints match | 5/5 | 5/5 | 5/5 | **MET** |
+| 7. Latest matching certification returned | Approve each text twice and look up twice; 5/5 return the latest approval | 5/5 | 5/5 | 5/5 | **MET** |
+| 8. Altered content fails verification | Test four alterations per text; 5/5 reject every alteration | 5/5 | 5/5 | 5/5 | **MET** |
+| 9. Unverifiable requests fail closed | Trigger 13 checks across five failure categories; 5/5 return specified responses | 5/5 | 5/5 | 5/5 | **MET** |
+| 10. Certification survives container replacement | Replace the container; 5/5 certificates retain evidence and verification behavior | 5/5 | 5/5 | 5/5 | **MET** |
+
+All five targets were met in every run (`MET` corresponds to `PASSED` in the saved report-certification_data_requests/results/20261118T050410Z_acfcf2/report.md. Counts come from
+[=per-case checks-: certification_data_requests/results/20261118T050410Z_acfcf2/results.json generated by
+`certification_data_requests/run_tests.py::evaluate()` and `case_passed()`.
+
+**Real output — Run 1**
+
+The excerpts below were recorded by `certification_data_requests/run_tests.py::Sandbox.request()`.
+All three runs retain their full requests, responses, logs and snapshots in
+the evidence directory-(certification_data_requests/results/20261118T050410Z_acfcf2).
+
+**6. Correct hash storage**
+
+Saved by `verification.py::review_content()`; audit copy written by
+`audit.py::log_verification()`
+
+```json
+{"timestamp": "2026-11-18T05:04:16.891484+00:00", "content_id": "c_44c2f37f5f8f", "creator_id": "certification_fixture_ordinary", "event": "human_verification_review", "status": "certified", "review_type": "human_verification", "verification_request_id": "vr_fd1adb677cbd4f1b", "review_decision": "certified", "reviewer": "Capstone test reviewer", "review_notes": "Synthetic test approval for certified-content integrity.", "credential": {"type": "verified_human", "method": "draft_review", "Certificate_id": "d2e3deb3", "verified_dt_time": "2026-11-18 05:04:16 UTC", "hash_algorithm": "sha256", "content_hash": "52e4f106e5180839e37001d783a5f525ad359ad3071f7deec0bacaa5d2e3deb3"}}
+```
+
+**7. Latest matching certification returned**
+
+Latest approval returned for ordinary prose.
+Produced by `verification.py::verify_content()`, returned by
+`app.py::verify_certified_content()`. Source: [response JSON](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_07/responses/019_case_01_lookup_1.json); HTTP `200`.
+
+```json
+{"certificate_id":"d2e3deb3","content_id":"c_ac8272dbe2c9","hash_algorithm":"sha256","latest_certification_at":"2026-11-18T05:04:22.016463+00:00","status":"verified","verified":true,"verified_dt_time":"2026-11-18 05:04:22 UTC"}
+```
+
+**8. Altered content fails verification**
+
+Long-text word alteration rejected; the edit begins after token 453.
+Produced by `verification.py::verify_content()`, returned by
+`app.py::verify_certified_content()`. Source: [response JSON](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_08/responses/032_case_05_check_1.json); HTTP `200`.
+
+```json
+{"certificate_id":"79ee2908","content_id":"c_5aa264727b57","hash_algorithm":"sha256","latest_certification_at":null,"status":"content_mismatch","verified":false,"verified_dt_time":null}
+```
+
+**9. Unverifiable requests fail closed**
+
+Deliberately triggered: wrong pairing, unknown ID, legacy record, missing ID,
+then corrupt storage. HTTP statuses were `200`, `404`, `409`, `400`, `503`,
+respectively. Produced by `verification.py::verify_content()` and the error
+handler in `app.py::verify_certified_content()`. Sources:
+[016_case_01_check_1.json](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_09/responses/016_case_01_check_1.json), [021_case_02_check_1.json](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_09/responses/021_case_02_check_1.json), [023_case_03_check_1.json](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_09/responses/023_case_03_check_1.json), [025_case_04_check_1.json](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_09/responses/025_case_04_check_1.json), [028_case_05_check_1.json](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_09/responses/028_case_05_check_1.json).
+
+```jsonl
+{"certificate_id":"db089bf7","content_id":"c_e06cb143836b","hash_algorithm":"sha256","latest_certification_at":null,"status":"content_mismatch","verified":false,"verified_dt_time":null}
+{"error":"certificate_not_found","message":"No certificate exists for that certificate_id.","verified":false}
+{"error":"certificate_unverifiable","message":"This certificate has no usable SHA-256 certification record.","verified":false}
+{"error":"bad_request","message":"Provide a non-empty certificate_id.","verified":false}
+{"error":"certificate_store_unavailable","message":"Certificate records could not be read.","verified":false}
+```
+
+**10. Certification survives container replacement**
+
+`certification_data_requests/run_tests.py::Sandbox.replace()` replaced the
+container while retaining its log volume. [Container identities](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_10/containers.json),
+[before](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_10/snapshots/after-initial-approvals/verified_human_certification_log.jsonl) and [after](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_10/snapshots/after-replacement/verified_human_certification_log.jsonl) certificate records are retained.
+The original and trailing-space variant then returned HTTP `200` through
+`app.py::verify_certified_content()` → `verification.py::verify_content()`.
+Sources: [original response](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_10/responses/016_case_01_after_restart_1.json) and [altered response](certification_data_requests/results/20261118T050410Z_acfcf2/run_1/criterion_10/responses/017_case_01_after_restart_2.json).
+
+```jsonl
+{"certificate_id":"d2e3deb3","content_id":"c_32a5fb00b5c1","hash_algorithm":"sha256","latest_certification_at":"2026-11-18T05:05:34.479989+00:00","status":"verified","verified":true,"verified_dt_time":"2026-11-18 05:05:34 UTC"}
+{"certificate_id":"d2e3deb3","content_id":"c_32a5fb00b5c1","hash_algorithm":"sha256","latest_certification_at":null,"status":"content_mismatch","verified":false,"verified_dt_time":null}
+```
+
+<!-- Unit9 Milestone 5 end -->
