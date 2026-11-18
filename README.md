@@ -2284,3 +2284,32 @@ criterion was left unchanged for the before/after comparison.
 
 <!-- Unit9 Milestone 7 start -->
 
+**What It Costs**
+
+
+| Workload | Runs | Mean CPU seconds/request | Mean server response seconds |
+|---|---|---|---|
+| Text assessment (`/submit`) | 10 | 5.8173868891 | 0.3079791001 |
+| Certificate verification | 10 | 0.0005986667 | 0.0005994165 |
+
+Assessment mean: `58.173868891 / 10 = 5.8173868891` CPU seconds.
+Verification mean: `0.005986667 / 10 = 0.0005986667` CPU seconds.
+For **100 people/day**, assuming one assessment and one verification each:
+`100 × (5.8173868891 + 0.0005986667) = 581.79855558` CPU seconds/day,
+about **9.70 CPU minutes/day** at this measured workload.
+
+CPU time sums work across threads, so it can exceed elapsed time. Each assessment processed 800 GPT-2 input tokens across two calls and 400 DistilGPT-2 input tokens in one call; both produced zero output tokens. These are repeated model inputs, not billable hosted-API tokens. The measurement excludes downloads, startup,
+warm-up, approval setup, human review, rate-limit waiting, idle work and storage.
+It is a compute estimate, not a dollar or capacity estimate; electricity and
+hardware costs were not measured, and larger stores or different inputs may cost more.
+
+
+**What's Still Broken**
+
+All five capstone criteria are **MET**. The accuracy in classification is not that high specially for short text. One thing which is broken is prompt injection identification.
+
+**How I Used AI**
+
+I took help in writing code to implement operations and verification.py but behsvior  and code implementation prompt was provided by me.
+
+<!-- Unit9 Milestone 7 end -->
