@@ -1843,8 +1843,10 @@ examples are preserved in [UNIT9_HISTORY.md](UNIT9_HISTORY.md).
 `docker compose up --build -d`, then wait for
 `http://127.0.0.1:5001/health` to report `inference_ready: true`.
 [RUNNING.md](RUNNING.md) lists prerequisites, model preparation, persistent
-volumes and example requests. A fresh clone of the published repository has
-not been validated; the Unit 9 files are still local.
+volumes and example requests. A fresh GitHub clone of commit `e790d0a` built
+and passed nine API checks in an isolated Docker service. The preceding local
+clone check also loaded both models into a new empty cache.
+[Checkout evidence](certification_data_requests/validation/clean_checkout.json).
 
 **Instrumentation**
 
@@ -2134,10 +2136,11 @@ approve content, so controlling who issues certificates is the first production 
    unchanged; supplemental rejection improved from 0/9 to 9/9. Codex also ran
    the cost measurement and drafted this write-up from the saved output.
 
-**Submission check:** The local files contain all nine sections, real logs,
-before/after results and measured cost. [SUBMISSION_CHECK.md](SUBMISSION_CHECK.md)
-records the outstanding publication, clean-clone and commit-history requirements;
-this is not yet a completed course submission.
+**Submission check:** Source, all nine sections, real logs, before/after results
+and measured cost are published to the same repository. A fresh checkout passed.
+[SUBMISSION_CHECK.md](SUBMISSION_CHECK.md) records the remaining commit-history
+and unaided-authorship gaps. The course submission destination was not supplied,
+so no course-form submission has been made.
 Repository: [Provenance Guard](https://github.com/dhalderBU/ai201-project4-provenance-guard-starter-v2026).
 
 <!-- Unit9 Milestone 7 end -->

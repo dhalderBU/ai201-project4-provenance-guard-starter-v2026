@@ -1,0 +1,270 @@
+{
+  "checked_at_utc": "2026-11-18T06:02:40.510458+00:00",
+  "clone_source": "local repository commit; remote publication checked separately",
+  "commit": "e790d0a3d3e05c75b236bf6fb44764daf422eaf0",
+  "architecture": "Linux ARM64",
+  "command": "PROVENANCE_PORT=52042 docker compose -p unit9-clean-l68r109f up --build -d",
+  "dependencies": "Existing Docker build layers reused; fresh empty application and model-cache volumes were created. Models downloaded during startup.",
+  "requests": [
+    {
+      "timestamp": "2026-11-18T06:02:40.537412+00:00",
+      "path": "/health",
+      "input": null,
+      "http_status": 200,
+      "output": {
+        "binoculars_loaded": true,
+        "binoculars_performer": "distilgpt2",
+        "binoculars_startup_error": null,
+        "circuit_breaker": {
+          "consecutive_timeouts": 0,
+          "retry_after_seconds": 0.0,
+          "state": "closed"
+        },
+        "circuit_breaker_enabled": true,
+        "detector_loaded": true,
+        "detector_model": "gpt2",
+        "inference_ready": true,
+        "inference_startup_error": null,
+        "log_entries": 0,
+        "ok": true,
+        "rate_limiting": true,
+        "request_timeout_enabled": true,
+        "request_timeout_seconds": 3.0
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.540019+00:00",
+      "path": "/ping",
+      "input": {
+        "message": "clean checkout"
+      },
+      "http_status": 200,
+      "output": {
+        "ok": true,
+        "service": "provenance-guard",
+        "you_sent": "clean checkout"
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.812763+00:00",
+      "path": "/submit",
+      "input": {
+        "text": "I didn't sleep. Not properly, anyway \u2014 I lay there listening to the boiler tick and thinking about the thing I'd said to Marcus at the pub, which was stupid, and which he will absolutely bring up again. Twice now. So: coffee, and the long way round to work, and a plan. The plan lasted until about ten past nine, when Priya asked how the weekend was and I said \"fine\" in the voice that means it wasn't, and she put her mug down and looked at me. That's the trouble with Priya. She notices.",
+        "creator_id": "demo_instructor"
+      },
+      "http_status": 200,
+      "output": {
+        "combined_score": 0.3456727963525836,
+        "confidence": 0.3456727963525836,
+        "content_id": "c_ec715d44b96f",
+        "guess": "human",
+        "http_status": 200,
+        "label": "human",
+        "label_text": "Our checks  suggest this text was written by a person. This assessment can be wrong.",
+        "model_score": 0.4445,
+        "style_score": 0.11507598784194532
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.814268+00:00",
+      "path": "/appeal",
+      "input": {
+        "content_id": "c_ec715d44b96f",
+        "review_type": "human_verification",
+        "reasoning": "Review the retained original for this isolated certification test.",
+        "additional_text": "Synthetic test fixture: approval exercises the certification workflow, not proof of authorship."
+      },
+      "http_status": 202,
+      "output": {
+        "content_id": "c_ec715d44b96f",
+        "message": "Your human-verification request has been recorded.",
+        "review_type": "human_verification",
+        "status": "under_review",
+        "verification_request_id": "vr_b14ff84884cf49af"
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.821603+00:00",
+      "path": "/verification/review",
+      "input": {
+        "content_id": "c_ec715d44b96f",
+        "status": "certified",
+        "reviewer": "Capstone test reviewer",
+        "review_notes": "Synthetic test approval for certified-content integrity."
+      },
+      "http_status": 200,
+      "output": {
+        "content_id": "c_ec715d44b96f",
+        "credential": {
+          "Certificate_id": "80d6dfa0",
+          "content_hash": "317ab9ef07794efc0e5fd87700c25b848d56679ce2b30f4d4117a18680d6dfa0",
+          "hash_algorithm": "sha256",
+          "method": "draft_review",
+          "type": "verified_human",
+          "verified_dt_time": "2026-11-18 06:02:40 UTC"
+        },
+        "status": "certified",
+        "verification_request_id": "vr_b14ff84884cf49af"
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.824876+00:00",
+      "path": "/verification/verify",
+      "input": {
+        "certificate_id": "80d6dfa0",
+        "text": "I didn't sleep. Not properly, anyway \u2014 I lay there listening to the boiler tick and thinking about the thing I'd said to Marcus at the pub, which was stupid, and which he will absolutely bring up again. Twice now. So: coffee, and the long way round to work, and a plan. The plan lasted until about ten past nine, when Priya asked how the weekend was and I said \"fine\" in the voice that means it wasn't, and she put her mug down and looked at me. That's the trouble with Priya. She notices."
+      },
+      "http_status": 200,
+      "output": {
+        "certificate_id": "80d6dfa0",
+        "content_id": "c_ec715d44b96f",
+        "hash_algorithm": "sha256",
+        "latest_certification_at": "2026-11-18T06:02:40.814155+00:00",
+        "status": "verified",
+        "verified": true,
+        "verified_dt_time": "2026-11-18 06:02:40 UTC"
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.825972+00:00",
+      "path": "/verification/verify",
+      "input": {
+        "certificate_id": "80d6dfa0",
+        "text": "I didn't sleep. Not properly, anyway \u2014 I lay there listening to the boiler tick and thinking about the thing I'd said to Marcus at the pub, which was stupid, and which he will absolutely bring up again. Twice now. So: coffee, and the long way round to work, and a plan. The plan lasted until about ten past nine, when Priya asked how the weekend was and I said \"fine\" in the voice that means it wasn't, and she put her mug down and looked at me. That's the trouble with Priya. She notices. "
+      },
+      "http_status": 200,
+      "output": {
+        "certificate_id": "80d6dfa0",
+        "content_id": "c_ec715d44b96f",
+        "hash_algorithm": "sha256",
+        "latest_certification_at": null,
+        "status": "content_mismatch",
+        "verified": false,
+        "verified_dt_time": null
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.827047+00:00",
+      "path": "/verification/verify",
+      "input": {
+        "certificate_id": "",
+        "text": "I didn't sleep. Not properly, anyway \u2014 I lay there listening to the boiler tick and thinking about the thing I'd said to Marcus at the pub, which was stupid, and which he will absolutely bring up again. Twice now. So: coffee, and the long way round to work, and a plan. The plan lasted until about ten past nine, when Priya asked how the weekend was and I said \"fine\" in the voice that means it wasn't, and she put her mug down and looked at me. That's the trouble with Priya. She notices."
+      },
+      "http_status": 400,
+      "output": {
+        "error": "bad_request",
+        "message": "Provide a non-empty certificate_id.",
+        "verified": false
+      }
+    },
+    {
+      "timestamp": "2026-11-18T06:02:40.828381+00:00",
+      "path": "/metrics?hours=1",
+      "input": null,
+      "http_status": 200,
+      "output": {
+        "appeal_classification_counts": {
+          "ai": 0,
+          "human": 0,
+          "unsure": 0
+        },
+        "average_response_time_seconds": 0.025767060363167813,
+        "circuit_breaker": {
+          "consecutive_timeouts": 0,
+          "retry_after_seconds": 0.0,
+          "state": "closed"
+        },
+        "circuit_breaker_rejections": 0,
+        "classification_counts": {
+          "ai": 0,
+          "human": 1,
+          "unsure": 0
+        },
+        "classification_scope": "successful POST /submit",
+        "cpu_seconds": {
+          "complete_requests": 11,
+          "incomplete_requests": 0,
+          "measured_total": 5.082725105999998
+        },
+        "current_timeout_seconds": 3.0,
+        "http_status_counts": {
+          "200": 9,
+          "202": 1,
+          "400": 1,
+          "429": 0,
+          "503": 0,
+          "504": 0
+        },
+        "malformed_records_skipped": 0,
+        "models": {
+          "distilgpt2": {
+            "calls": 1,
+            "completed_calls": 1,
+            "completed_input_tokens": 118,
+            "incomplete_calls": 0,
+            "input_tokens": 118,
+            "measured_cpu_seconds": 0.5560744490000005,
+            "measured_duration_seconds": 0.02682591599295847,
+            "output_tokens": 0,
+            "scored_tokens": 117
+          },
+          "gpt2": {
+            "calls": 2,
+            "completed_calls": 2,
+            "completed_input_tokens": 236,
+            "incomplete_calls": 0,
+            "input_tokens": 236,
+            "measured_cpu_seconds": 4.418211577000001,
+            "measured_duration_seconds": 0.22576745902188122,
+            "output_tokens": 0,
+            "scored_tokens": 234
+          }
+        },
+        "note": "Includes this metrics request's receipt; averages/statuses use completed requests only. Unfinished receipts may be in flight or interrupted.",
+        "recording_enabled": true,
+        "requests_by_route": {
+          "GET /health": 4,
+          "GET /metrics": 1,
+          "POST /appeal": 1,
+          "POST /ping": 1,
+          "POST /submit": 1,
+          "POST /verification/review": 1,
+          "POST /verification/verify": 3
+        },
+        "requests_completed": 11,
+        "requests_received": 12,
+        "requests_without_completion": 1,
+        "response_time_seconds": {
+          "average": 0.025767060363167813,
+          "max": 0.2709919579938287,
+          "min": 0.00010191700130235404,
+          "p50": 0.0007519159989897162,
+          "p95": 0.13862116650125245
+        },
+        "timeout_configurations": [
+          {
+            "enabled": true,
+            "requests_received": 12,
+            "timeout_seconds": 3.0,
+            "timeouts": 0
+          }
+        ],
+        "timeout_count": 0,
+        "window": {
+          "end": "2026-11-18T06:02:40.826834+00:00",
+          "hours": 1.0,
+          "start": "2026-11-18T05:02:40.826834+00:00",
+          "timestamp_basis": "received_at"
+        }
+      }
+    }
+  ],
+  "clean_git_status_after": "",
+  "image_id": "sha256:5303aa22fc1d3bcc99a54a6804ef8bba97c354aa140738036a625b0253737c4c",
+  "volumes": [
+    "unit9-clean-l68r109f_app-data",
+    "unit9-clean-l68r109f_app-results",
+    "unit9-clean-l68r109f_model-cache"
+  ],
+  "result": "PASS: fresh local clone builds, loads both models, serves assessment/review/verification/metrics and rejects altered or invalid input."
+}

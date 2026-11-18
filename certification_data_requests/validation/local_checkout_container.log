@@ -1,0 +1,23 @@
+[2026-11-18 06:01:52 +0000] [7] [INFO] Starting gunicorn 23.0.0
+[2026-11-18 06:01:52 +0000] [7] [INFO] Listening at: http://0.0.0.0:5000 (7)
+[2026-11-18 06:01:52 +0000] [7] [INFO] Using worker: gthread
+[2026-11-18 06:01:52 +0000] [8] [INFO] Booting worker with pid: 8
+127.0.0.1 - - [18/Nov/2026:06:01:57 +0000] "GET /health HTTP/1.1" 200 426 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:09 +0000] "GET /health HTTP/1.1" 200 423 "-" "Python-urllib/3.12"
+127.0.0.1 - - [18/Nov/2026:06:02:27 +0000] "GET /health HTTP/1.1" 200 423 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "GET /health HTTP/1.1" 200 423 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "POST /ping HTTP/1.1" 200 69 "-" "Python-urllib/3.12"
+`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.
+punctuation_density = structural_marks / words = 9 / 94 = 0.095745
+punctuation_ai = clamp01((0.095745 - 0.06) / (0.14 - 0.06)) = clamp01(0.446809) = 0.4468
+ttr = mean TTR over 50-word windows (MATTR) = 0.808000  [94 words]
+ttr_ai = clamp01((0.82 - 0.808000) / (0.82 - 0.68)) = clamp01(0.085714) = 0.0857
+style_score = (weight_spread * spread_ai) + (weight_punctuation * punctuation_ai) + (weight_ttr * ttr_ai)
+            = (0.50 * 0.0000) + (0.20 * 0.4468) + (0.30 * 0.0857) = 0.1151
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "POST /submit HTTP/1.1" 200 305 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "POST /appeal HTTP/1.1" 202 202 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "POST /verification/review HTTP/1.1" 200 345 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "POST /verification/verify HTTP/1.1" 200 228 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "POST /verification/verify HTTP/1.1" 200 186 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "POST /verification/verify HTTP/1.1" 400 89 "-" "Python-urllib/3.12"
+172.24.0.1 - - [18/Nov/2026:06:02:40 +0000] "GET /metrics?hours=1 HTTP/1.1" 200 1897 "-" "Python-urllib/3.12"

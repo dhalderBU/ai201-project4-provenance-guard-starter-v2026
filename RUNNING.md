@@ -780,6 +780,10 @@ This guide was checked against the current code, local Python 3.12 environment,
 and running ARM64 Docker service. Verification covered the environment check,
 CLI option parsing, fixture loading, Docker configuration, and API responses in
 an isolated temporary record directory. The full timed attack/acceptance runs
-were not repeated during the documentation audit. A fresh native dependency
-installation, a clean-checkout build, AMD64 execution, and Windows execution
-were not validated in that audit.
+were not repeated during the documentation audit. Milestone 7 subsequently built
+a fresh GitHub clone of `e790d0a` on ARM64 and checked nine API requests, including
+assessment, review, verification, rejection and metrics. Existing dependency build
+layers were reused; an earlier isolated clone check started with empty log and
+model-cache volumes and loaded both models. [Saved checkout evidence](certification_data_requests/validation/clean_checkout.json).
+A fresh native dependency installation, AMD64 execution and Windows execution
+remain unvalidated.
