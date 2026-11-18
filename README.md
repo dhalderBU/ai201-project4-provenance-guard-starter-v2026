@@ -1204,12 +1204,14 @@ Duplicate pending requests, new requests for certified items, and conflicting
 decisions return `409`. Repeating the same decision for the same request returns
 the saved result, including its existing reviewer and notes.
 
-On certification, I generate a short UUID-based `Certificate_id`, check its
-uniqueness, and record `verified_dt_time` explicitly in UTC. I append the approved
+On certification, new records use the last eight characters of the full SHA-256
+content hash as `Certificate_id` and record `verified_dt_time` explicitly in UTC.
+Identical content shares the same ID across separate approvals. I append the approved
 record to `logs/verified_human_certification_log.jsonl` and the review outcome to
 `logs/audit.jsonl`. A declined request has no credential; the writer can submit
 new evidence in another appeal. I preserve the original submission and scores;
-the certificate applies only to the reviewed item.
+each approval history record remains tied to its reviewed item. The example
+below is a historical UUID-based certificate; existing records keep those IDs.
 
 I check the result by content ID:
 
@@ -1766,3 +1768,32 @@ Overall, the attack results went from **46 HELD and 10 BROKE** to **41 HELD and 
 
      Do not delete and recreate this repository.
      ═════════════════════════════════════════════════════════════════════ -->
+
+## Capstone
+
+<!-- Unit9 Milestone 1 start -->
+
+**What This Extends**
+
+Provenance Guard, in unit 9 we are picking Shape- C. In earlier units the in the application we built features which scores on assessed authorship (flow to scores text based on scores related to model_score and stylometry scores), handles appeals and issues certificates after human review. In unit 9 we are adding a new capability  i.e any one can acll the endpoint with a content and a certificate id and the application validates and confirms if it was certified earlier. 
+
+**The Shape**
+
+**Shape-C — Extend one capability: certified-content integrity.**
+Store a SHA-256 hash of the complete UTF-8 text at approval and compare it through one verification endpoint. Matching includes whitespace, Unicode and punctuation; it confirms equality with the stored version.
+
+**Out of scope:**
+
+- Detector retraining, scoring changes and threshold tuning.
+- Addition of new signal for scoring 
+- Public-key signatures and offline issuer authentication.
+- Cloud or GPU deployment
+
+**System - Local deployment in docker desktop with logs**
+
+**Scope:** 
+**Path B — local CPU Docker desktop deployment usingt a docker image .The same image can be used by anyone using a Apple silicon**.
+One exact-text verification endpoint, reusing review, storage and Docker.
+The original implementation budget was about 90 minutes; elapsed build time was not measured but the image building did not take time as I took help of AI to guide me through the steps.
+
+<!-- Unit9 Milestone 1 end -->
