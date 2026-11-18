@@ -1824,3 +1824,37 @@ The hash and certificate ID are stored in logs/certification_log.jsonl, configur
 
 **Responses status(POST /verification/verify):** exact match against a valid certificate → 200, verified: true; changed text → 200, verified: false; invalid input → 400; unknown certificate ID, including a missing or empty store → 404; unusable or conflicting certificate → 409; unreadable or corrupt store → 503; request timeout → 504
 
+**Operational support:**
+- Configurable server-side processing budget, defaulting to 3 seconds; processing timeouts return `504`. By default, three scoring timeouts without an intervening successful scoring request open the circuit for a 30-second cooldown. Scoring requests during that period return `503`; certificate lookups remain available. Model loading is outside the budget.
+- `/health` reports model readiness through `inference_ready`, along with timeout settings and circuit state.
+    curl http://127.0.0.1:5001/health may  return :
+
+ ```jsonl
+    {
+  "binoculars_loaded": true,
+  "binoculars_performer": "distilgpt2",
+  "binoculars_startup_error": null,
+  "circuit_breaker": {
+    "consecutive_timeouts": 0,
+    "retry_after_seconds": 0.0,
+    "state": "closed"
+  },
+  "circuit_breaker_enabled": true,
+  "detector_loaded": true,
+  "detector_model": "gpt2",
+  "inference_ready": true,
+  "inference_startup_error": null,
+  "log_entries": 896,
+  "ok": true,
+  "rate_limiting": true,
+  "request_timeout_enabled": true,
+  "request_timeout_seconds": 3.0
+}
+```
+
+- `logs/operational_metrics.jsonl` tracks requests, status, timing, CPU, timeouts, and model tokens, flagging incomplete measurements. New scoring normally uses GPT-2 twice and DistilGPT-2 once; certificate matches skip inference. No output tokens are generated.
+- `GET /metrics?hours=24` reports counts, processing times, classification labels, HTTP statuses, timeouts, and model/CPU totals. Add in query string `&download=1` for JSON download. Docker bind-mounts the deployment’s `./logs` directory at `/app/logs`, preserving logs across container replacement.
+
+**What's Still Broken** Prompt Injection is still not being identified and I have not found a solution to it till now. Will work on it in future after I read papaers on how to identify.
+
+<!-- Unit9 Milestone 2 end -->
