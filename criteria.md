@@ -183,7 +183,7 @@ Use fresh, isolated records for each criterion/run. Submit each fixture through
 `POST /submit`, request human review through `POST /appeal`, and approve through
 `POST /verification/review`. Verify with `POST /verification/verify`, supplying
 `certificate_id` and the exact `text`. The runner resolves generated content IDs.
-Certificate records are in `logs/verified_human_certification_log.jsonl`;
+Certificate records are in `logs/certification_log.jsonl`;
 approval audit records are in `logs/audit.jsonl`.
 
 ##### 6. Correct hash storage

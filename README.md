@@ -1910,4 +1910,12 @@ The rejected request returned `400`, `verified: false`, `bad_request`.
 {"timestamp": "2026-11-18T05:50:24.681238+00:00", "run": 1, "endpoint": "/verification/verify", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/024_failure_01.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"verified": false, "error": "bad_request"}, "http_status": 400, "duration_seconds": 0.0002408339933026582, "cpu_seconds": 0.00024008400000000152}
 ```
 
-<!-- Unit9 Milestone 3 end -->
+<!-- Unit9 Milestone 3 end --> 
+
+<!-- Unit9 Milestone 4 start -->
+
+**Capstone criteria**
+
+criteria.md#capstone-additional-5-criteria defines criteria 6–10, their targets, reasons and fixed fixtures. Each has five cases per run; every required check must pass for its case to pass.
+
+<!-- Unit9 Milestone 4 end -->
