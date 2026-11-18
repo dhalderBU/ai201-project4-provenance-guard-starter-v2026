@@ -56,13 +56,27 @@ window). I treat the result as a heuristic, not proof of authorship.
    linked by `content_id`. I offer automatic appeals
    or human verification with supporting text and a reviewer's decision.
 
+Before model scoring, `/submit` checks whether the full text hash matches an
+existing valid certificate. If it does, I return `status="already_certified"`,
+the message `"This content is already certified."`, and the existing certificate,
+content ID, and latest approval timestamp. This skips scoring and preserves the
+original records. Unmatched text follows the scoring flow above.
+
+Whenever a new submission or automatic appeal is classified `human`, I also save
+a certificate with `credential.method="automated_assessment"`. Approved manual
+reviews use `credential.method="draft_review"`. Both are stored in
+`logs/certification_log.jsonl`, configured by `config.CERTIFICATION_LOG`.
+Each new record includes a schema version and a unique `certification_event_id`;
+the full text hash and short certificate ID remain inside `credential`.
+The method distinguishes a model assessment from a person's review.
+
 I link these JSONL files by `content_id`, with one JSON object per line:
 
 | File | What I store |
 |---|---|
 | `logs/submissions.jsonl` | `timestamp` in UTC (`+00:00`), `content_id`, `creator_id`, `text`, `guess`, `label`, `label_text`, `confidence`, `status` (`"decided"`), `model_score`, `style_score`, `combined_score`, `perplexity_score`, `binoculars_score`, `binoculars_used`, and `word_count`. |
 | `logs/audit.jsonl` | Decision scores, labels, status, appeal evidence, and review outcomes. New decisions omit the submitted text. |
-| `logs/verified_human_certification_log.jsonl` | Approved certificates with `Certificate_id` and `verified_dt_time` explicitly in UTC. |
+| `logs/certification_log.jsonl` | Automatic `human` assessments and approved manual reviews, with method, full hash, certificate ID, event ID, and UTC timestamps. |
 
 I save the same initial decision values in the submission and audit files.
 The submission keeps its initial `decided` status; reviews append their outcomes
@@ -718,7 +732,8 @@ original decision, which used the submission's 70/30 weights.
 
 I save the appeal before inference, then append an `appeal_reassessment` with
 scores and votes. I keep automatic appeals `under_review` for every result,
-including `human`; an automatic recheck does not issue a certificate. The saved
+including `human`; a `human` result now issues an `automated_assessment` certificate
+in the shared certification log while keeping the appeal `under_review`. The saved
 submission and original `decided` audit record retain their initial values.
 
 An unsure majority returns this message from the appeal criterion:
@@ -1207,7 +1222,7 @@ the saved result, including its existing reviewer and notes.
 On certification, new records use the last eight characters of the full SHA-256
 content hash as `Certificate_id` and record `verified_dt_time` explicitly in UTC.
 Identical content shares the same ID across separate approvals. I append the approved
-record to `logs/verified_human_certification_log.jsonl` and the review outcome to
+record to `logs/certification_log.jsonl` and the review outcome to
 `logs/audit.jsonl`. A declined request has no credential; the writer can submit
 new evidence in another appeal. I preserve the original submission and scores;
 each approval history record remains tied to its reviewed item. The example
@@ -1797,3 +1812,12 @@ One exact-text verification endpoint, reusing review, storage and Docker.
 The original implementation budget was about 90 minutes; elapsed build time was not measured but the image building did not take time as I took help of AI to guide me through the steps.
 
 <!-- Unit9 Milestone 1 end -->
+
+<!-- .   Unit9 Milestone 2 start 
+Build it. One capability, one hardening layer, or the operational scaffolding — whatever your shape named.
+Confirm the original system still works. An extension that breaks what it extends is a regression, and you'll find it faster now than in Milestone 5.
+Commit as you go. At least three commits in this milestone alone.          -->
+
+**Built:** `verification.py` saves `hash_algorithm="sha256"`, the full content hash(i.e the text submitted) and 8 character length `Certificate_id = content_hash` (thisi sthe last 8 character of the hash caulated from the original text submitted) , the same is logged. 
+The hash and certificate ID are stored in logs/certification_log.jsonl, configured in `config.py` CERTIFICATION_LOG = LOG_DIR / "certification_log.jsonl". If a conten has been previously certified wither automated or human then we also send  a "message": "This content is already certified."
+`POST /verification/verify` accepts `certificate_id` and `text`, compares the full hash and returns the latest matching approval's content ID and UTC timestamps. A certificate id is only useful when the original conten is provided as for all content it generates the hash an then uses the last 8 character as the certificate ID 
