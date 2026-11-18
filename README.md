@@ -1858,3 +1858,56 @@ The hash and certificate ID are stored in logs/certification_log.jsonl, configur
 **What's Still Broken** Prompt Injection is still not being identified and I have not found a solution to it till now. Will work on it in future after I read papaers on how to identify.
 
 <!-- Unit9 Milestone 2 end -->
+
+<!-- Unit9 Milestone 3 Start -->
+
+**Running It**
+
+**Path B — local CPU Docker with logs.** From the project root, run `docker compose up --build -d`, then wait for `http://127.0.0.1:5001/health` to report `inference_ready: true`. [RUNNING.md](RUNNING.md#docker-deployment) lists prerequisites, model preparation, the host `./logs` bind mount, persistent volumes, and example requests.
+
+**Instrumentation**
+
+With operational logging enabled (the default), `operations.py::install()` records request arrivals and completions in
+`logs/operational_metrics.jsonl`: request ID, UTC time, route, HTTP status, server processing time, CPU time, model calls/tokens, result and timeout configuration.
+For the recorded experiment, `certification_data_requests/measure_cost.py::main()` joined those completions with saved request bodies and responses, producing structured run records with input references, output, timestamp, and duration.
+Full text remains in the referenced request files.
+
+**Measured cost of one run — historical baseline**
+
+One run means one successful `POST /submit` assessment with both models already loaded. Ten assessments of the same fixed text were measured on local CPU Docker on. The measured cost is CPU seconds per assessment:
+
+| Measurement | Result |
+| --- | ---: |
+| Assessment runs | 10 |
+| Total measured CPU time | 58.173868891 seconds |
+| Average CPU time per assessment | **5.8174 CPU seconds** |
+| Average server processing time per assessment | **0.3080 seconds** |
+
+**How it was measured:** `operations.py` adds the HTTP handler's thread CPU time (`time.thread_time()`) to the inference process CPU time measured by `inference_runtime.py` (`time.process_time()`). The cost helper reads each request's operational completion and calculates the arithmetic mean:
+`58.173868891 / 10 = 5.8173868891 CPU seconds`. 
+All ten CPU measurements were complete. Model loading, warm-up, network transfer, rate-limit waiting, and the
+deliberately rejected request were excluded from this assessment average. Server processing time is elapsed wall time, not client round-trip time. CPU time can exceed elapsed time because inference uses multiple CPU threads; this
+run used 24 PyTorch threads.
+
+The measurement summary is saved in certification_data_requests/results/cost_20261118T054918Z_bc49b0/summary.json
+contains the totals and averages
+
+Below are ten assessment records and one deliberately rejected empty-certificate-ID request, from certification_data_requests/results/cost_20261118T054918Z_bc49b0/run_log.jsonl.
+
+The rejected request returned `400`, `verified: false`, `bad_request`.
+
+```jsonl
+{"timestamp": "2026-11-18T05:49:22.504265+00:00", "run": 1, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/004_assessment_01.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_959d058870ad", "label": "human"}, "http_status": 200, "duration_seconds": 0.31186900098691694, "cpu_seconds": 5.841856091000004}
+{"timestamp": "2026-11-18T05:49:22.900296+00:00", "run": 2, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/005_assessment_02.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_ecce6a459f4c", "label": "human"}, "http_status": 200, "duration_seconds": 0.29954254200856667, "cpu_seconds": 5.724689109}
+{"timestamp": "2026-11-18T05:49:23.297259+00:00", "run": 3, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/006_assessment_03.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_8b52248fd2df", "label": "human"}, "http_status": 200, "duration_seconds": 0.30039999999280553, "cpu_seconds": 5.7463216909999995}
+{"timestamp": "2026-11-18T05:49:23.696638+00:00", "run": 4, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/007_assessment_04.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_3b28c79dc5c3", "label": "human"}, "http_status": 200, "duration_seconds": 0.2964040410006419, "cpu_seconds": 5.684972994000009}
+{"timestamp": "2026-11-18T05:49:24.088124+00:00", "run": 5, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/008_assessment_05.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_dc606003f725", "label": "human"}, "http_status": 200, "duration_seconds": 0.2989576670079259, "cpu_seconds": 5.6957565689999985}
+{"timestamp": "2026-11-18T05:49:24.482328+00:00", "run": 6, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/009_assessment_06.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_52de85b690ab", "label": "human"}, "http_status": 200, "duration_seconds": 0.29938350000884384, "cpu_seconds": 5.74347164}
+{"timestamp": "2026-11-18T05:49:24.876361+00:00", "run": 7, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/010_assessment_07.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_7393b761acd4", "label": "human"}, "http_status": 200, "duration_seconds": 0.2907010420021834, "cpu_seconds": 5.6307086619999875}
+{"timestamp": "2026-11-18T05:49:25.263452+00:00", "run": 8, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/011_assessment_08.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_1be1b728f8a0", "label": "human"}, "http_status": 200, "duration_seconds": 0.29784770899277646, "cpu_seconds": 5.718806697000005}
+{"timestamp": "2026-11-18T05:50:22.912976+00:00", "run": 9, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/012_assessment_09.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_789785e341e6", "label": "human"}, "http_status": 200, "duration_seconds": 0.374216416006675, "cpu_seconds": 6.5233518339999925}
+{"timestamp": "2026-11-18T05:50:23.391949+00:00", "run": 10, "endpoint": "/submit", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/013_assessment_10.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"content_id": "c_5d41ba142974", "label": "human"}, "http_status": 200, "duration_seconds": 0.3104690829932224, "cpu_seconds": 5.863933603999999}
+{"timestamp": "2026-11-18T05:50:24.681238+00:00", "run": 1, "endpoint": "/verification/verify", "input": {"request_file": "certification_data_requests/results/cost_20261118T054918Z_bc49b0/session/requests/024_failure_01.json", "text_sha256": "5199e4ca9b554d23e50636eb8d8c9bf7a1235bd4068a42c2d7bb015279ee2908"}, "output": {"verified": false, "error": "bad_request"}, "http_status": 400, "duration_seconds": 0.0002408339933026582, "cpu_seconds": 0.00024008400000000152}
+```
+
+<!-- Unit9 Milestone 3 end -->
